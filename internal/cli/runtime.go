@@ -20,18 +20,22 @@ const (
 	defaultLoginTime  = 10 * time.Minute
 	minLoginTime      = time.Minute
 	maxLoginTime      = 30 * time.Minute
+	defaultWaitTime   = 10 * time.Minute
+	minWaitTime       = time.Second
+	maxWaitTime       = 24 * time.Hour
 	maxCredentialTime = 30 * time.Second
 )
 
 type globalFlags struct {
-	account string
-	json    bool
-	plain   bool
-	noInput bool
-	dryRun  bool
-	force   bool
-	noColor bool
-	timeout time.Duration
+	account     string
+	json        bool
+	plain       bool
+	noInput     bool
+	dryRun      bool
+	force       bool
+	noColor     bool
+	timeout     time.Duration
+	waitTimeout time.Duration
 }
 
 type appRuntime struct {
@@ -93,7 +97,8 @@ func newRuntime(options Options) *appRuntime {
 		executor:    options.Executor,
 		profiles:    options.Profiles,
 		flags: globalFlags{
-			timeout: defaultTimeout,
+			timeout:     defaultTimeout,
+			waitTimeout: defaultWaitTime,
 		},
 	}
 }

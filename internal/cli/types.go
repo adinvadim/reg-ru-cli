@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"time"
 
 	"github.com/adinvadim/reg-ru-cli/internal/profile"
 	"golang.org/x/term"
@@ -44,13 +45,17 @@ func DefaultOptions() Options {
 }
 
 type Operation struct {
-	Capability  string
-	Action      string
-	ProfileID   string
-	Account     string
-	Arguments   []string
-	Force       bool
-	Credentials CredentialResolver
+	Capability     string
+	Action         string
+	ProfileID      string
+	Account        string
+	Arguments      []string
+	Parameters     map[string][]string
+	NoWait         bool
+	RequestTimeout time.Duration
+	WaitTimeout    time.Duration
+	Force          bool
+	Credentials    CredentialResolver
 }
 
 type CredentialResolver interface {

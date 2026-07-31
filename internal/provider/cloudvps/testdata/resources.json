@@ -1,0 +1,37 @@
+{
+  "ips": [
+    {
+      "id": 5,
+      "ip": "198.51.100.4",
+      "ptr": "ptr.example",
+      "region_slug": "openstack-msk3",
+      "reglet_id": 42,
+      "status": "active",
+      "type": "ipv4",
+      "created_at": "2026-07-31 02:00:00"
+    }
+  ],
+  "ssh_key": [
+    {
+      "id": 6,
+      "name": "fixture-key",
+      "fingerprint": "aa:bb",
+      "public_key": "ssh-ed25519 AAAAfixture",
+      "service_id": 99
+    }
+  ],
+  "snapshots": [
+    {
+      "id": 7,
+      "name": "fixture-snapshot",
+      "slug": "fixture-snapshot",
+      "type": "snapshot",
+      "region_slug": "openstack-msk3",
+      "distribution": "Ubuntu",
+      "private": true,
+      "created_at": "2026-07-31 03:00:00",
+      "min_disk_size": "10",
+      "size_gigabytes": "4"
+    }
+  ]
+}

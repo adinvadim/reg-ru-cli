@@ -34,6 +34,13 @@ func newRootCommand(app *appRuntime) *cobra.Command {
 					maxNetworkTimeout,
 				))
 			}
+			if app.flags.waitTimeout < minWaitTime || app.flags.waitTimeout > maxWaitTime {
+				return UsageError(fmt.Sprintf(
+					"--wait-timeout must be between %s and %s",
+					minWaitTime,
+					maxWaitTime,
+				))
+			}
 			if err := app.loadProfiles(); err != nil {
 				return err
 			}

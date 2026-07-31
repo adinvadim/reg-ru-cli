@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/adinvadim/reg-ru-cli/internal/cli"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/cloudvps"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/authcli"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
@@ -41,6 +42,7 @@ func productionOptions() cli.Options {
 		cdp.NewFactory(cdp.Config{}),
 		session.Options{LoginURL: portalLoginURL},
 	)
+	options.Executor = cloudvps.NewExecutor(cloudvps.ExecutorOptions{}, options.Executor)
 	options.Executor = authcli.New(options.Profiles, broker, options.Executor)
 	return options
 }

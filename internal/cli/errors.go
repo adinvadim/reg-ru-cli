@@ -43,6 +43,7 @@ const (
 	CodeAuthExpired          = "authentication_expired"
 	CodeAccountMismatch      = "account_mismatch"
 	CodeNetwork              = "network_error"
+	CodeProviderContract     = "provider_contract_drift"
 	CodeTimeout              = "timeout"
 	CodeCapability           = "capability_unavailable"
 	CodeContractDrift        = "private_contract_drift"
@@ -151,6 +152,106 @@ func CapabilityUnavailable(capability, message string) *CLIError {
 		ExitCapability,
 		map[string]any{"capability": capability},
 	)
+}
+
+func ProviderError(
+	provider string,
+	code string,
+	status int,
+	retryable bool,
+	requestID string,
+) *CLIError {
+	if code == "" {
+		code = "unknown"
+	}
+	details := map[string]any{
+		"provider":      provider,
+		"provider_code": code,
+		"http_status":   status,
+	}
+	if requestID != "" {
+		details["request_id"] = requestID
+	}
+	err := newCLIError(
+		CodeNetwork,
+		fmt.Sprintf("%s rejected the request", provider),
+		ExitNetwork,
+		details,
+	)
+	err.Retryable = retryable
+	return err
+}
+
+func ProviderAuthenticationError(provider string) *CLIError {
+	return newCLIError(
+		CodeAuthExpired,
+		fmt.Sprintf("%s credentials were rejected; refresh the selected account credential", provider),
+		ExitAuthentication,
+		map[string]any{"provider": provider},
+	)
+}
+
+func ProviderContractDrift(provider string) *CLIError {
+	return newCLIError(
+		CodeProviderContract,
+		fmt.Sprintf("%s response no longer matches the documented API contract", provider),
+		ExitNetwork,
+		map[string]any{"provider": provider},
+	)
+}
+
+func ProviderWaitStopped(
+	provider string,
+	actionID string,
+	status string,
+	cause error,
+	retryable bool,
+) *CLIError {
+	code := CodeTimeout
+	message := fmt.Sprintf("%s action wait timed out; resume it with the action identifier", provider)
+	exitCode := ExitTimeout
+	if errors.Is(cause, context.Canceled) {
+		code = CodeInterrupted
+		message = fmt.Sprintf("%s action wait was interrupted; the provider action was not cancelled", provider)
+		exitCode = ExitInterrupted
+	}
+	err := newCLIError(
+		code,
+		message,
+		exitCode,
+		map[string]any{
+			"provider":  provider,
+			"action_id": actionID,
+			"status":    status,
+		},
+	)
+	err.Retryable = retryable
+	err.Cause = cause
+	return err
+}
+
+func ProviderActionFailed(provider, actionID, status string) *CLIError {
+	return newCLIError(
+		CodeNetwork,
+		fmt.Sprintf("%s action ended with status %s", provider, status),
+		ExitNetwork,
+		map[string]any{
+			"provider":  provider,
+			"action_id": actionID,
+			"status":    status,
+		},
+	)
+}
+
+func NetworkError(provider string, retryable bool) *CLIError {
+	err := newCLIError(
+		CodeNetwork,
+		fmt.Sprintf("%s request failed before a usable response was received", provider),
+		ExitNetwork,
+		map[string]any{"provider": provider},
+	)
+	err.Retryable = retryable
+	return err
 }
 
 func MissingBrowser() *CLIError {
@@ -318,6 +419,7 @@ func looksLikeUsageError(err error) bool {
 		"unknown flag",
 		"requires at least",
 		"requires at most",
+		"required flag",
 		"accepts ",
 		"arg(s)",
 	} {

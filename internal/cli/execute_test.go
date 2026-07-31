@@ -493,7 +493,7 @@ func TestCredentialProcessIsNotRunForDryRunOrUnusedPlaceholder(t *testing.T) {
 		[]string{
 			"--account", "personal",
 			"--dry-run",
-			"vps", "delete", "vps-id",
+			"vps", "delete", "42",
 		},
 		"",
 		false,
@@ -890,6 +890,124 @@ func TestDryRunProvesZeroExecutorCallsAndRedactsArguments(t *testing.T) {
 	if !strings.Contains(run.stdout, `"dry_run":true`) ||
 		!strings.Contains(run.stdout, `"argument_count":2`) {
 		t.Errorf("unexpected dry-run output: %s", run.stdout)
+	}
+}
+
+func TestCloudVPSCommandTreeExposesTicketSurface(t *testing.T) {
+	run := runCLI(t, nil, []string{"vps", "--help"}, "", false, nil, nil)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	for _, command := range []string{
+		"action",
+		"backup",
+		"clone",
+		"create",
+		"delete",
+		"image",
+		"ip",
+		"password-reset",
+		"plan",
+		"rebuild",
+		"rename",
+		"resize",
+		"snapshot",
+		"ssh-key",
+		"start",
+		"stop",
+	} {
+		if !strings.Contains(run.stdout, command) {
+			t.Errorf("vps help does not expose %q:\n%s", command, run.stdout)
+		}
+	}
+	if !strings.Contains(run.stdout, "--no-wait") {
+		t.Errorf("vps help does not expose --no-wait:\n%s", run.stdout)
+	}
+}
+
+func TestCloudVPSCreatePassesTypedParametersAndNoWait(t *testing.T) {
+	var received Operation
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		received = operation
+		return Result{
+			Human: "created",
+			Plain: []string{"created"},
+			Data:  map[string]bool{"created": true},
+		}, nil
+	})
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--account", "personal",
+			"--force",
+			"vps", "--no-wait",
+			"create",
+			"--name", "fixture",
+			"--size", "cloud-2",
+			"--image", "ubuntu-24-04-amd64",
+			"--region", "openstack-msk3",
+			"--ssh-key", "6",
+			"--backups",
+		},
+		"",
+		false,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if received.Action != "vps.create" || !received.NoWait {
+		t.Fatalf("operation = %+v", received)
+	}
+	for key, expected := range map[string]string{
+		"name":    "fixture",
+		"size":    "cloud-2",
+		"image":   "ubuntu-24-04-amd64",
+		"region":  "openstack-msk3",
+		"ssh-key": "6",
+		"backups": "true",
+	} {
+		if values := received.Parameters[key]; len(values) != 1 || values[0] != expected {
+			t.Errorf("parameter %q = %v, want %q", key, values, expected)
+		}
+	}
+}
+
+func TestCloudVPSCommandsValidateBeforeExecutor(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, _ Operation) (Result, error) {
+		calls++
+		return Result{}, nil
+	})
+
+	for name, args := range map[string][]string{
+		"create requires catalog selections": {
+			"--account", "personal", "--force", "vps", "create",
+		},
+		"IP allocation requires a bounded count": {
+			"--account", "personal", "--force", "vps", "ip", "add", "42", "--ipv4-count", "5",
+		},
+		"plan discovery requires a region": {
+			"--account", "personal", "vps", "plan", "list",
+		},
+		"wait timeout is bounded": {
+			"--account", "personal", "vps", "--wait-timeout", "500ms", "action", "wait", "1",
+		},
+		"server identifiers are positive decimals": {
+			"--account", "personal", "vps", "get", "server-name",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			run := runCLI(t, nil, args, "", false, nil, executor)
+			if run.exitCode != ExitUsage {
+				t.Fatalf("exit code = %d, want %d; stderr=%q", run.exitCode, ExitUsage, run.stderr)
+			}
+		})
+	}
+	if calls != 0 {
+		t.Fatalf("executor called %d time(s) for invalid CloudVPS input", calls)
 	}
 }
 

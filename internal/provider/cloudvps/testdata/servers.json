@@ -1,0 +1,26 @@
+{
+  "reglet": [
+    {
+      "id": 42,
+      "name": "fixture-vps",
+      "status": "active",
+      "region_slug": "openstack-msk3",
+      "size_slug": "cloud-2",
+      "image_id": 7,
+      "ip": "192.0.2.10",
+      "ipv6": null,
+      "ptr": "fixture.example",
+      "backups_enabled": false,
+      "last_backup_date": null,
+      "created_at": "2026-07-31 01:02:03",
+      "vcpus": 2,
+      "memory": 2048,
+      "disk": 40,
+      "service_id": 99,
+      "vpcs": [1]
+    }
+  ],
+  "links": {
+    "actions": []
+  }
+}

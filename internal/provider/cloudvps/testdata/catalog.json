@@ -1,0 +1,39 @@
+{
+  "plans": [
+    {
+      "id": 8,
+      "slug": "cloud-2",
+      "name": "Cloud 2",
+      "plan_line": "cloud",
+      "unit": "month",
+      "vcpus": 2,
+      "memory": 2048,
+      "disk": 40,
+      "videocards": 0,
+      "price_per_hour": "1.25",
+      "price_per_month": 900
+    }
+  ],
+  "images": [
+    {
+      "id": 9,
+      "slug": "ubuntu-24-04-amd64",
+      "name": "Ubuntu 24.04",
+      "type": "distribution",
+      "region_slug": "openstack-msk3",
+      "distribution": "Ubuntu",
+      "private": false,
+      "created_at": "2026-07-31T00:00:00Z",
+      "min_disk_size": "10",
+      "size_gigabytes": "4"
+    }
+  ],
+  "metadata": {
+    "pages": {
+      "current": 1,
+      "items_per_page": 100,
+      "total": 1
+    },
+    "total": 1
+  }
+}

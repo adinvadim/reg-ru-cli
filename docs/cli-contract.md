@@ -20,7 +20,14 @@ The visible command tree is:
 regru auth login|status|refresh|logout
 regru account add|list|show|use|remove|doctor
 regru capability list|probe
-regru vps list|get|ips|create|start|stop|reboot|delete
+regru vps list|get|ips|create|rename|start|stop|reboot|rebuild|resize|password-reset|clone|delete
+regru vps action show|wait
+regru vps ip list|show|add|ptr|remove
+regru vps ssh-key list|add|rename|remove
+regru vps snapshot list|create|remove
+regru vps backup enable|disable|restore
+regru vps plan list|show
+regru vps image list|show
 regru s3 bucket list|get|create|configure|delete
 regru s3 credentials list|create|revoke
 regru billing balance|invoices|invoice|checkout
@@ -49,6 +56,12 @@ implemented. A live unavailable command fails closed with a structured
 
 `auth login` additionally has `--login-timeout`, defaulting to 10 minutes and
 bounded to 1–30 minutes.
+
+CloudVPS commands use `--timeout` for each credential or HTTP request and
+`--wait-timeout` for the complete asynchronous action wait. The wait defaults
+to 10 minutes and is bounded to 1 second–24 hours. Mutations wait by default;
+`vps --no-wait ...` returns the accepted action without polling. See the
+[CloudVPS command guide](cloudvps.md).
 
 Account selection follows this precedence:
 
@@ -151,13 +164,15 @@ JSON error:
   "ok": false,
   "command": "vps list",
   "error": {
-    "code": "capability_unavailable",
-    "message": "this capability is not implemented in the current build",
-    "exitCode": 7,
-    "retryable": false,
-    "details": {
-      "capability": "cloudvps.instances"
-    }
+      "code": "network_error",
+      "message": "CloudVPS rejected the request",
+      "exitCode": 6,
+      "retryable": false,
+      "details": {
+        "provider": "CloudVPS",
+        "provider_code": "VALIDATION_ERROR",
+        "http_status": 400
+      }
   }
 }
 ```
@@ -208,7 +223,9 @@ regru --help
 regru --version
 regru --account personal auth status --json
 regru --account personal --no-input billing balance --plain
-regru --account personal --dry-run vps delete vps-id
+regru --account personal vps plan list --region openstack-msk3
+regru --account personal --dry-run vps create --size cloud-2 --image ubuntu-24-04-amd64 --region openstack-msk3
+regru --account personal --force vps action wait action-id --wait-timeout 20m
 regru --account personal --force auth logout
 regru completion zsh
 ```
