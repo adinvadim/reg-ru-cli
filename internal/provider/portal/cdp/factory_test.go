@@ -160,3 +160,41 @@ func TestS3PortalProgramsKeepSecretsOutOfInventoryAndMutationResults(t *testing.
 		t.Fatal("credential program does not own the narrow secret-bearing path")
 	}
 }
+
+func TestBillingPortalProgramsKeepCheckoutLocatorInsideBrowserWorld(t *testing.T) {
+	programs := productionPrograms()
+	history, historyExists := programs[programBillingHistory]
+	checkout, checkoutExists := programs[programBillingCheckout]
+	if !historyExists || !checkoutExists {
+		t.Fatal("billing portal programs are not registered")
+	}
+	for _, marker := range []string{
+		"query userBills", "acc-csrftoken", "x-acc-csrftoken",
+		"/account/issue_csrf_token", "has_more", "total_count",
+	} {
+		if !strings.Contains(history.source, marker) || !strings.Contains(checkout.source, marker) {
+			t.Errorf("billing programs are missing semantic marker %q", marker)
+		}
+	}
+	if strings.Contains(history.source, "items { id amount state bill_sid") || strings.Contains(history.source, "billSid:") {
+		t.Fatal("history enrichment program must not return or select checkout locators")
+	}
+	for _, marker := range []string{"bill_sid", "/billing/payment/choose", "browser-opened"} {
+		if !strings.Contains(checkout.source, marker) {
+			t.Errorf("checkout program is missing route marker %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		`match.state === "paid"`, `match.pay_status === "payed"`,
+		`match.freezed`, `match.pay_status === "onhold"`,
+		`match.state !== "notpaid"`, `match.pay_status !== "notpayed"`,
+		`checkout-unavailable`,
+	} {
+		if !strings.Contains(checkout.source, marker) {
+			t.Errorf("checkout program is missing fail-closed state guard %q", marker)
+		}
+	}
+	if strings.Contains(checkout.source, "payment/order") {
+		t.Fatal("checkout program must not navigate the order route")
+	}
+}

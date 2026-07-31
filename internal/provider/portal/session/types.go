@@ -37,6 +37,7 @@ type OpenMode string
 const (
 	OpenStagedLogin OpenMode = "staged-login"
 	OpenCommitted   OpenMode = "committed-session"
+	OpenHandoff     OpenMode = "visible-handoff"
 )
 
 type ProgramID string
