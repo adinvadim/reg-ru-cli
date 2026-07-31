@@ -431,6 +431,64 @@ func TestWithSessionRunsTypedProgramAfterIdentityCheckedRefresh(t *testing.T) {
 	}
 }
 
+func TestHandoffKeepsVerifiedVisibleBrowserOpenAfterProgramDispatch(t *testing.T) {
+	t.Parallel()
+
+	store := session.NewFileStore(t.TempDir())
+	digest := bytes.Repeat([]byte{0x77}, session.IdentityDigestBytes)
+	loginBroker := session.NewBroker(store, &fakeBrowserFactory{browser: &fakeBrowser{
+		waitObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest},
+	}}, session.Options{LoginURL: "https://www.reg.ru/user/account/"})
+	login, err := loginBroker.Login(context.Background(), session.LoginSpec{
+		ProfileID: "p_77777777777777777777777777",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	executor := &fixtureExecutor{result: json.RawMessage(`{"state":"browser-opened"}`)}
+	browser := &fakeBrowser{
+		refreshObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest},
+		executor:           executor,
+	}
+	factory := &fakeBrowserFactory{browser: browser}
+	broker := session.NewBroker(store, factory, session.Options{LoginURL: "https://www.reg.ru/user/account/"})
+	err = broker.Handoff(context.Background(), session.Profile{
+		ID: "p_77777777777777777777777777", SessionRef: login.SessionRef,
+	}, func(page session.PageExecutor) error {
+		var result json.RawMessage
+		return page.RunJSON(context.Background(), "portal.billing.checkout", json.RawMessage(`{"invoiceId":"42"}`), &result)
+	})
+	if err != nil {
+		t.Fatalf("Handoff() error = %v", err)
+	}
+	if factory.spec.Mode != session.OpenHandoff {
+		t.Errorf("open mode = %q, want %q", factory.spec.Mode, session.OpenHandoff)
+	}
+	if browser.closed {
+		t.Fatal("successful handoff closed the visible browser")
+	}
+	if executor.program != "portal.billing.checkout" {
+		t.Errorf("program = %q", executor.program)
+	}
+
+	dispatchErr := errors.New("checkout dispatch was not confirmed")
+	failedBrowser := &fakeBrowser{
+		refreshObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest},
+		executor:           executor,
+	}
+	failedBroker := session.NewBroker(store, &fakeBrowserFactory{browser: failedBrowser}, session.Options{})
+	err = failedBroker.Handoff(context.Background(), session.Profile{
+		ID: "p_77777777777777777777777777", SessionRef: login.SessionRef,
+	}, func(session.PageExecutor) error { return dispatchErr })
+	if !errors.Is(err, dispatchErr) {
+		t.Fatalf("failed Handoff() error = %v, want dispatch error", err)
+	}
+	if !failedBrowser.closed {
+		t.Fatal("ambiguous handoff left the visible browser open")
+	}
+}
+
 func entryNames(entries []os.DirEntry) []string {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -443,12 +501,14 @@ func entryNames(entries []os.DirEntry) []string {
 
 type fakeBrowserFactory struct {
 	browser *fakeBrowser
+	spec    session.OpenSpec
 }
 
 func (f *fakeBrowserFactory) Open(
 	_ context.Context,
-	_ session.OpenSpec,
+	spec session.OpenSpec,
 ) (session.Browser, error) {
+	f.spec = spec
 	return f.browser, nil
 }
 

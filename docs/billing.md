@@ -64,21 +64,40 @@ command fails overall and includes the normalized per-item outcomes in the
 structured error. Provider error text is not used for control flow or emitted
 as stable output.
 
-## Deliberately gated portal capabilities
+## Private portal enrichment and checkout
 
 REG.API publishes no generic invoice-create method, ordinary-client paid
 history, bill-specific available-method list, or payment URL. The current
-cabinet contains private session-bound billing routes, but enabling them
-requires an authorized redacted capture that proves request/response types,
-identifier equivalence, CSRF behavior, and the checkout route.
+cabinet contains private session-bound billing routes. An authorized redacted
+capture now establishes the `userBills` request and response shape, empty and
+non-empty pagination, normalized portal `id` equivalence to REG.API `bill_id`,
+matching payment status, and stable opaque locators across a managed-browser
+restart. A second authorized capture established two unpaid bill classes and
+the bill-scoped `choose` handoff. The retained fixture contains no
+account-specific field values, amounts, identifiers, or locators.
 
-Until that evidence exists:
+`invoice list` and detailed `invoice show` remain REG.API operations. When an
+active portal session is available, the CLI may add a small
+`portalEnrichment` record only after the browser principal, current frontend
+semantics, identifier, amount, and payment-state invariants all agree. Missing
+or incompatible portal data produces a warning and never replaces or disables
+the public REG.API result.
+
+`payment-link <id>` is intentionally a browser handoff rather than a URL. It
+requires confirmation (or `--force`), finds exactly one payable portal row,
+and opens the private `choose` route in the dedicated visible browser while
+keeping `bill_sid` inside the browser process. Its result reports
+`browser_opened`, `shareable: false`, and unknown expiry; it never prints or
+returns the route. The CLI does not choose a method, enter payment data, or
+submit payment.
+
+The authorized chooser capture did not expose a stable bill-scoped method
+list. Accordingly:
 
 - `invoice create` explains that creation belongs to a service-specific order
   or renewal workflow;
-- `payment-method list` returns `capability_unavailable`;
-- `payment-link` returns `capability_unavailable` and never synthesizes,
-  prints, or opens a URL containing the private `bill_sid` locator.
+- `payment-method list` returns `capability_unavailable` rather than
+  substituting global saved bindings or a help-page catalog.
 
 This gate is independent of public REG.API and CloudVPS reads: private portal
 drift cannot silently disable or replace the documented provider contracts.

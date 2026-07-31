@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,7 +12,10 @@ import (
 
 	"github.com/adinvadim/reg-ru-cli/internal/cli"
 	"github.com/adinvadim/reg-ru-cli/internal/credentialprocess"
+	"github.com/adinvadim/reg-ru-cli/internal/profile"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/cloudvps"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/regapi"
 )
 
@@ -23,6 +27,8 @@ type ExecutorOptions struct {
 	REGAPIBaseURL   string
 	CloudVPSBaseURL string
 	HTTPClient      HTTPDoer
+	Profiles        profile.Repository
+	Portal          PortalControlPlane
 }
 
 type Executor struct {
@@ -49,14 +55,11 @@ func (e *Executor) Execute(ctx context.Context, operation cli.Operation) (cli.Re
 		)
 	case "billing.invoice.payment-method.list":
 		return cli.Result{}, cli.CapabilityUnavailable(
-			"billing.checkout.capture_required",
-			"bill-specific payment methods remain unavailable until an authorized redacted portal capture establishes their contract",
+			"billing.checkout.method_list_unavailable",
+			"the captured bill-specific chooser exposed no stable payment-method list; continue in the visible checkout browser",
 		)
 	case "billing.invoice.payment-link":
-		return cli.Result{}, cli.CapabilityUnavailable(
-			"billing.checkout.capture_required",
-			"browser checkout remains unavailable until an authorized redacted portal capture validates the bill-scoped handoff",
-		)
+		return e.paymentLink(ctx, operation)
 	}
 	if operation.Credentials == nil {
 		return cli.Result{}, cli.ConfigurationError("billing credentials are not configured")
@@ -198,7 +201,12 @@ func (e *Executor) invoiceList(ctx context.Context, operation cli.Operation) (cl
 	page, err := client.ListUnpaid(ctx, regapi.ListRequest{
 		Limit: intParameter(operation, "limit"), Offset: intParameter(operation, "offset"),
 	})
-	return renderInvoicePage("unpaid invoices", page), err
+	if err != nil {
+		return cli.Result{}, err
+	}
+	result := renderInvoicePage("unpaid invoices", page)
+	e.enrichInvoiceResult(ctx, operation, page.Invoices, &result)
+	return result, nil
 }
 
 func (e *Executor) invoiceShow(ctx context.Context, operation cli.Operation) (cli.Result, error) {
@@ -214,7 +222,9 @@ func (e *Executor) invoiceShow(ctx context.Context, operation cli.Operation) (cl
 	}
 	for _, invoice := range page.Invoices {
 		if invoice.ID == id {
-			return renderInvoice(invoice), nil
+			result := renderInvoice(invoice)
+			e.enrichInvoiceResult(ctx, operation, []regapi.Invoice{invoice}, &result)
+			return result, nil
 		}
 	}
 	statuses, err := client.Status(ctx, []string{id})
@@ -236,6 +246,173 @@ func (e *Executor) invoiceShow(ctx context.Context, operation cli.Operation) (cl
 			Message: "REG.API exposes status but no full get-by-ID detail for this invoice",
 		}},
 	}, nil
+}
+
+func (e *Executor) paymentLink(ctx context.Context, operation cli.Operation) (cli.Result, error) {
+	account, err := e.portalAccount(operation)
+	if err != nil {
+		return cli.Result{}, err
+	}
+	if e.options.Portal == nil {
+		return cli.Result{}, cli.CapabilityUnavailable(
+			"billing.checkout", "the browser-backed billing adapter is not configured",
+		)
+	}
+	handoff, err := e.options.Portal.OpenCheckout(ctx, account, argument(operation, 0))
+	if err != nil {
+		return cli.Result{}, translatePortalError(operation, err)
+	}
+	return cli.Result{
+		Human: "Opened the REG.RU checkout in the managed browser",
+		Plain: []string{"browser_opened\treg-ru-checkout\tshareable=false\texpires_at=unknown"},
+		Data:  handoff,
+		Warnings: []cli.Warning{{
+			Code:    "experimental_private_portal",
+			Message: "checkout remains in the visible REG.RU browser; the CLI did not select a method or submit payment",
+		}},
+	}, nil
+}
+
+type portalEnrichment struct {
+	InvoiceID    string `json:"invoiceId"`
+	Available    bool   `json:"available"`
+	Payable      bool   `json:"payable,omitempty"`
+	IsPrepayment bool   `json:"isPrepayment,omitempty"`
+}
+
+func (e *Executor) enrichInvoiceResult(
+	ctx context.Context,
+	operation cli.Operation,
+	invoices []regapi.Invoice,
+	result *cli.Result,
+) {
+	if result == nil || e.options.Portal == nil || e.options.Profiles == nil {
+		return
+	}
+	account, err := e.portalAccount(operation)
+	if err != nil || account.Portal.SessionRef == "" {
+		return
+	}
+	history, err := e.options.Portal.History(ctx, account)
+	if err != nil {
+		result.Warnings = append(result.Warnings, portalReadWarning(err))
+		return
+	}
+	byID := make(map[string]PortalInvoice, len(history.Invoices))
+	for _, invoice := range history.Invoices {
+		if _, exists := byID[invoice.ID]; exists {
+			result.Warnings = append(result.Warnings, cli.Warning{
+				Code: "private_contract_incompatible", Message: "portal enrichment was discarded because invoice identifiers were ambiguous",
+			})
+			return
+		}
+		byID[invoice.ID] = invoice
+	}
+	enrichments := make([]portalEnrichment, 0, len(invoices))
+	for _, invoice := range invoices {
+		portalInvoice, exists := byID[invoice.ID]
+		if !exists {
+			enrichments = append(enrichments, portalEnrichment{InvoiceID: invoice.ID})
+			continue
+		}
+		amount := invoice.TotalPayment
+		if amount == "" {
+			amount = invoice.Payment
+		}
+		if !sameDecimal(amount, portalInvoice.Amount) || invoice.PayStatus != portalInvoice.PayStatus {
+			result.Warnings = append(result.Warnings, cli.Warning{
+				Code: "private_contract_incompatible", Message: "portal enrichment was discarded because invoice invariants conflicted",
+			})
+			return
+		}
+		enrichments = append(enrichments, portalEnrichment{
+			InvoiceID: invoice.ID, Available: true,
+			Payable:      portalInvoice.State == "notpaid" && portalInvoice.PayStatus == "notpayed" && !portalInvoice.Frozen,
+			IsPrepayment: portalInvoice.IsPrepayment,
+		})
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		return
+	}
+	data["portalEnrichment"] = enrichments
+	result.Warnings = append(result.Warnings, cli.Warning{
+		Code: "experimental_private_portal", Message: "invoice enrichment comes from a private, fail-closed REG.RU portal contract",
+	})
+}
+
+func sameDecimal(first, second string) bool {
+	firstNumber, firstOK := new(big.Rat).SetString(first)
+	secondNumber, secondOK := new(big.Rat).SetString(second)
+	return firstOK && secondOK && firstNumber.Cmp(secondNumber) == 0
+}
+
+func (e *Executor) portalAccount(operation cli.Operation) (profile.Account, error) {
+	if e == nil || e.options.Profiles == nil {
+		return profile.Account{}, cli.ConfigurationError("billing portal integration is not configured")
+	}
+	config, err := e.options.Profiles.Load()
+	if err != nil {
+		return profile.Account{}, cli.ConfigurationError("profile configuration is invalid")
+	}
+	account, exists := config.Accounts[operation.Account]
+	if !exists || account.ID != operation.ProfileID {
+		return profile.Account{}, cli.AccountNotFound(operation.Account)
+	}
+	return account, nil
+}
+
+func portalReadWarning(err error) cli.Warning {
+	code := "portal_enrichment_unavailable"
+	message := "private portal enrichment was unavailable; REG.API data is unchanged"
+	if isBillingPortalKind(err, PortalContract) || session.IsCode(err, session.CodeContractDrift) {
+		code = "private_contract_incompatible"
+		message = "private portal enrichment was discarded because its contract probe failed"
+	}
+	return cli.Warning{Code: code, Message: message}
+}
+
+func translatePortalError(operation cli.Operation, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	switch {
+	case session.IsCode(err, session.CodeAccountMismatch):
+		return cli.AccountMismatch(operation.Account, "")
+	case session.IsCode(err, session.CodeProfileBusy):
+		return cli.PortalProfileBusy()
+	case session.IsCode(err, session.CodeSessionLost), session.IsCode(err, session.CodeNotEstablished),
+		isBillingPortalKind(err, PortalUnauthorized):
+		return cli.AuthenticationExpired()
+	case session.IsCode(err, session.CodeContractDrift), isBillingPortalKind(err, PortalContract):
+		return cli.PrivateContractDrift(operation.Capability)
+	case session.IsCode(err, session.CodeBrowser):
+		if errors.Is(err, cdp.ErrBrowserNotFound) {
+			return cli.MissingBrowser()
+		}
+		return cli.BrowserSessionInterrupted()
+	case isBillingPortalKind(err, PortalUnavailable):
+		return cli.CapabilityUnavailable("billing.checkout", "run regru auth login to establish a portal session")
+	case isBillingPortalKind(err, PortalNetwork):
+		return cli.NetworkError("REG.RU portal billing", false)
+	case isBillingPortalKind(err, PortalDomain):
+		var portalErr *PortalError
+		_ = errors.As(err, &portalErr)
+		message := "checkout is unavailable for this invoice"
+		if portalErr != nil {
+			switch portalErr.Code {
+			case "not-found":
+				message = "the invoice was not found in the authenticated portal"
+			case "already-paid":
+				message = "the invoice is already paid"
+			case "not-payable":
+				message = "the invoice is currently not payable"
+			}
+		}
+		return cli.CapabilityUnavailable("billing.checkout", message)
+	default:
+		return cli.ConfigurationError("the billing portal adapter failed")
+	}
 }
 
 func (e *Executor) invoiceStatus(ctx context.Context, operation cli.Operation) (cli.Result, error) {

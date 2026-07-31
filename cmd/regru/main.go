@@ -45,7 +45,10 @@ func productionOptions() cli.Options {
 		session.Options{LoginURL: portalLoginURL},
 	)
 	options.Executor = cloudvps.NewExecutor(cloudvps.ExecutorOptions{}, options.Executor)
-	options.Executor = billing.NewExecutor(billing.ExecutorOptions{}, options.Executor)
+	options.Executor = billing.NewExecutor(billing.ExecutorOptions{
+		Profiles: options.Profiles,
+		Portal:   billing.NewPortalBillingControlPlane(broker),
+	}, options.Executor)
 	options.Executor = regs3.NewExecutor(options.Profiles, regs3.ExecutorOptions{
 		ControlPlane: regs3.NewPortalControlPlane(broker),
 	}, options.Executor)

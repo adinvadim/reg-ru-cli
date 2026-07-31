@@ -1027,16 +1027,13 @@ func TestBillingCommandsRejectUnsafeProviderInputsBeforeExecutor(t *testing.T) {
 	}
 }
 
-func TestGatedBillingMutationsFailBeforeConfirmationOrDryRun(t *testing.T) {
+func TestGatedInvoiceCreationFailsBeforeDryRun(t *testing.T) {
 	calls := 0
 	executor := executorFunc(func(_ context.Context, _ Operation) (Result, error) {
 		calls++
 		return Result{}, nil
 	})
-	for _, args := range [][]string{
-		{"--account", "personal", "billing", "invoice", "payment-link", "42"},
-		{"--account", "personal", "--dry-run", "billing", "invoice", "create"},
-	} {
+	for _, args := range [][]string{{"--account", "personal", "--dry-run", "billing", "invoice", "create"}} {
 		run := runCLI(t, nil, args, "", false, nil, executor)
 		if run.exitCode != ExitCapability {
 			t.Errorf("args %v exit code = %d; stdout=%q stderr=%q", args, run.exitCode, run.stdout, run.stderr)
@@ -1047,6 +1044,34 @@ func TestGatedBillingMutationsFailBeforeConfirmationOrDryRun(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("gated billing command reached executor %d time(s)", calls)
+	}
+}
+
+func TestBillingPaymentLinkRequiresConfirmationBeforeBrowserHandoff(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		calls++
+		return Result{Human: operation.Action}, nil
+	})
+	run := runCLI(t, nil, []string{
+		"--account", "personal", "billing", "invoice", "payment-link", "42",
+	}, "", false, nil, executor)
+	if run.exitCode != ExitInteractionRequired || calls != 0 || !strings.Contains(run.stderr, CodeConfirmationRequired) {
+		t.Fatalf("exit code = %d, calls = %d, stderr=%q", run.exitCode, calls, run.stderr)
+	}
+
+	run = runCLI(t, nil, []string{
+		"--account", "personal", "--force", "billing", "invoice", "payment-link", "42",
+	}, "", false, nil, executor)
+	if run.exitCode != ExitOK || calls != 1 {
+		t.Fatalf("forced exit code = %d, calls = %d, stderr=%q", run.exitCode, calls, run.stderr)
+	}
+
+	run = runCLI(t, nil, []string{
+		"--account", "personal", "--no-input", "--force", "billing", "invoice", "payment-link", "42",
+	}, "", false, nil, executor)
+	if run.exitCode != ExitInteractionRequired || calls != 1 || !strings.Contains(run.stderr, CodeInteractiveRequired) {
+		t.Fatalf("no-input exit code = %d, calls = %d, stderr=%q", run.exitCode, calls, run.stderr)
 	}
 }
 

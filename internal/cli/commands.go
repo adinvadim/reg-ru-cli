@@ -944,13 +944,12 @@ func newBillingInvoiceCommand(app *appRuntime) *cobra.Command {
 		"billing.invoice.payment-link",
 		positiveDecimalArgs(1),
 	))
-	gateUnavailableCommand(
-		app,
-		paymentLink,
-		"billing.checkout.capture_required",
-		"browser checkout remains unavailable until an authorized redacted portal capture validates the bill-scoped handoff",
-	)
-
+	paymentLink.PreRunE = func(_ *cobra.Command, _ []string) error {
+		if app.flags.noInput && !app.flags.dryRun {
+			return InteractiveRequired("billing.invoice.payment-link")
+		}
+		return nil
+	}
 	paymentMethodList := newOperationCommand(app, readSpec(
 		"list <id>",
 		"Report bill-specific methods when the portal contract is captured",
@@ -961,8 +960,8 @@ func newBillingInvoiceCommand(app *appRuntime) *cobra.Command {
 	gateUnavailableCommand(
 		app,
 		paymentMethodList,
-		"billing.checkout.capture_required",
-		"bill-specific payment methods remain unavailable until an authorized redacted portal capture establishes their contract",
+		"billing.checkout.method_list_unavailable",
+		"the captured bill-specific chooser exposed no stable payment-method list; continue in the visible checkout browser",
 	)
 	var paymentType string
 	var paymentCurrency string

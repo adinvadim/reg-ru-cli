@@ -10,6 +10,8 @@ import (
 
 	"github.com/adinvadim/reg-ru-cli/internal/cli"
 	"github.com/adinvadim/reg-ru-cli/internal/credentialprocess"
+	"github.com/adinvadim/reg-ru-cli/internal/profile"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/regapi"
 )
 
 func TestExecutorReturnsSourceDiscriminatedBalances(t *testing.T) {
@@ -133,13 +135,12 @@ func TestExecutorReportsEveryBulkDeleteOutcomeAndFailsOverall(t *testing.T) {
 	}
 }
 
-func TestExecutorFailsClosedForUncapturedPortalCapabilities(t *testing.T) {
+func TestExecutorFailsClosedForUnavailableInvoiceCreationAndMethodList(t *testing.T) {
 	resolver := credentialMap{}
 	executor := NewExecutor(ExecutorOptions{}, nil)
 	for _, action := range []string{
 		"billing.invoice.create",
 		"billing.invoice.payment-method.list",
-		"billing.invoice.payment-link",
 	} {
 		_, err := executor.Execute(context.Background(), operation(action, []string{"42"}, nil, &resolver))
 		var cliErr *cli.CLIError
@@ -149,6 +150,85 @@ func TestExecutorFailsClosedForUncapturedPortalCapabilities(t *testing.T) {
 	}
 	if resolver.calls != 0 {
 		t.Fatalf("gated capabilities resolved credentials %d time(s)", resolver.calls)
+	}
+}
+
+func TestExecutorEnrichesREGAPIInvoiceOnlyWhenPortalInvariantsMatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"result":"success","answer":{"bills":[{"bill_id":"42","bill_date":"2026-07-31","currency":"RUR","payment":"100.00","total_payment":"100.00","pay_type":"card","pay_status":"notpayed","items":[]}]}}`)
+	}))
+	defer server.Close()
+
+	portal := &fakePortalControl{history: PortalHistory{Invoices: []PortalInvoice{{
+		ID: "42", Amount: "100", State: "notpaid", PayStatus: "notpayed", IsPrepayment: true,
+	}}}}
+	executor := NewExecutor(ExecutorOptions{
+		REGAPIBaseURL: server.URL, HTTPClient: server.Client(),
+		Profiles: billingProfiles(), Portal: portal,
+	}, nil)
+	result, err := executor.Execute(context.Background(), operation("billing.invoice.list", nil, map[string][]string{
+		"limit": {"100"}, "offset": {"0"},
+	}, regapiCredentials()))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	data := result.Data.(map[string]any)
+	enrichments := data["portalEnrichment"].([]portalEnrichment)
+	if len(enrichments) != 1 || !enrichments[0].Available || !enrichments[0].Payable || !enrichments[0].IsPrepayment {
+		t.Fatalf("enrichments = %#v", enrichments)
+	}
+	if portal.historyCalls != 1 {
+		t.Fatalf("history calls = %d", portal.historyCalls)
+	}
+}
+
+func TestExecutorDiscardsConflictingPortalEnrichmentWithoutLosingREGAPIResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"result":"success","answer":{"bills":[{"bill_id":"42","bill_date":"2026-07-31","currency":"RUR","payment":"100.00","total_payment":"100.00","pay_type":"card","pay_status":"notpayed","items":[]}]}}`)
+	}))
+	defer server.Close()
+
+	executor := NewExecutor(ExecutorOptions{
+		REGAPIBaseURL: server.URL, HTTPClient: server.Client(), Profiles: billingProfiles(),
+		Portal: &fakePortalControl{history: PortalHistory{Invoices: []PortalInvoice{{
+			ID: "42", Amount: "101", State: "notpaid", PayStatus: "notpayed",
+		}}}},
+	}, nil)
+	result, err := executor.Execute(context.Background(), operation("billing.invoice.list", nil, map[string][]string{
+		"limit": {"100"}, "offset": {"0"},
+	}, regapiCredentials()))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	data := result.Data.(map[string]any)
+	if data["page"].(regapi.InvoicePage).Invoices[0].ID != "42" || data["portalEnrichment"] != nil {
+		t.Fatalf("data = %#v", data)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].Code != "private_contract_incompatible" {
+		t.Fatalf("warnings = %#v", result.Warnings)
+	}
+}
+
+func TestExecutorReturnsNonShareableVisibleCheckoutHandoffWithoutResolvingCredentials(t *testing.T) {
+	portal := &fakePortalControl{handoff: CheckoutHandoff{
+		Handoff: "browser_opened", Destination: "reg-ru-checkout", Shareable: false,
+	}}
+	resolver := &credentialMap{}
+	executor := NewExecutor(ExecutorOptions{Profiles: billingProfiles(), Portal: portal}, nil)
+	result, err := executor.Execute(context.Background(), operation(
+		"billing.invoice.payment-link", []string{"42"}, nil, resolver,
+	))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if resolver.calls != 0 || portal.checkoutID != "42" {
+		t.Fatalf("resolver calls = %d; checkout ID = %q", resolver.calls, portal.checkoutID)
+	}
+	handoff := result.Data.(CheckoutHandoff)
+	if handoff.Handoff != "browser_opened" || handoff.Shareable || handoff.ExpiresAt != nil {
+		t.Fatalf("handoff = %#v", handoff)
 	}
 }
 
@@ -178,4 +258,32 @@ func operation(action string, arguments []string, parameters map[string][]string
 		Action: action, Capability: "billing", Account: "fixture", ProfileID: "p_fixture",
 		Arguments: arguments, Parameters: parameters, RequestTimeout: 0, Credentials: credentials,
 	}
+}
+
+type fakePortalControl struct {
+	history      PortalHistory
+	historyErr   error
+	handoff      CheckoutHandoff
+	handoffErr   error
+	historyCalls int
+	checkoutID   string
+}
+
+func (f *fakePortalControl) History(context.Context, profile.Account) (PortalHistory, error) {
+	f.historyCalls++
+	return f.history, f.historyErr
+}
+
+func (f *fakePortalControl) OpenCheckout(_ context.Context, _ profile.Account, invoiceID string) (CheckoutHandoff, error) {
+	f.checkoutID = invoiceID
+	return f.handoff, f.handoffErr
+}
+
+func billingProfiles() *profile.MemoryRepository {
+	return profile.NewMemoryRepository(profile.Config{Accounts: map[string]profile.Account{
+		"fixture": {
+			ID: "p_fixture", Provider: "reg.ru",
+			Portal: profile.Portal{SessionRef: "s_fixture"},
+		},
+	}})
 }

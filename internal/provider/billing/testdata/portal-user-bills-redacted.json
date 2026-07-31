@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "regru.portal-billing-capture/v1",
+  "capturedAt": "2026-07-31",
+  "build": {
+    "accountApplication": "index.af742acd14730e78f0c8.js",
+    "accountGraphQLClient": "4229.37275d176a2e742ac00c.js",
+    "billsRoute": "4684.7fd0dca789c45f9a8482.js"
+  },
+  "request": {
+    "method": "POST",
+    "origin": "gql-acc.svc.reg.ru",
+    "path": "/",
+    "queryKeys": [
+      "opName"
+    ],
+    "headerNames": [
+      "Apollo-Require-Preflight",
+      "content-type",
+      "x-acc-csrftoken"
+    ],
+    "operationName": "userBills",
+    "variables": {
+      "limit": "number",
+      "offset": "number",
+      "searchQuery": "string",
+      "startDate": "string",
+      "finishDate": "string"
+    }
+  },
+  "csrf": {
+    "cookieName": "acc-csrftoken",
+    "headerName": "x-acc-csrftoken",
+    "issuer": {
+      "method": "GET",
+      "origin": "gql-acc.svc.reg.ru",
+      "path": "/account/issue_csrf_token",
+      "credentials": "include"
+    },
+    "tokenValueRetained": false
+  },
+  "response": {
+    "envelope": {
+      "data": "object",
+      "errors": "absent-on-success",
+      "userBills": "object"
+    },
+    "pagination": {
+      "nonEmptyPageObserved": true,
+      "emptyPageObserved": true,
+      "emptyPageHasMore": false,
+      "has_more": [
+        "boolean"
+      ],
+      "total_count": [
+        "number"
+      ],
+      "items": [
+        "array"
+      ]
+    },
+    "itemFields": {
+      "amount": [
+        "number"
+      ],
+      "bill_sid": [
+        "string"
+      ],
+      "create_date": [
+        "string"
+      ],
+      "description": [
+        "string"
+      ],
+      "freezed": [
+        "boolean"
+      ],
+      "id": [
+        "number"
+      ],
+      "isDownloadGarantLetter": [
+        "boolean"
+      ],
+      "is_prepayment": [
+        "boolean"
+      ],
+      "pay_date": [
+        "string"
+      ],
+      "pay_status": [
+        "string"
+      ],
+      "pay_time": [
+        "string"
+      ],
+      "pay_type": [
+        "string"
+      ],
+      "pay_type_title": [
+        "string"
+      ],
+      "state": [
+        "string"
+      ],
+      "submode": [
+        "string"
+      ]
+    },
+    "enumSpellings": {
+      "pay_status": [
+        "notpayed",
+        "payed"
+      ],
+      "pay_type": [
+        "card",
+        "prepay"
+      ],
+      "state": [
+        "notpaid",
+        "paid"
+      ],
+      "submode": [
+        "",
+        "autorefill",
+        "oneclick_payment"
+      ]
+    }
+  },
+  "invariants": {
+    "principalMatchedSelectedProfile": true,
+    "portalIdKind": "number",
+    "regapiBillIdKind": "string",
+    "normalizedIdMatchesBillId": true,
+    "allMatchedPayStatusesEqual": true,
+    "billSidStableAcrossManagedBrowserRestart": true,
+    "requestedAmountMatchedPortalRow": true,
+    "twoUnpaidBillClassesObserved": true
+  },
+  "checkout": {
+    "requestedRoute": {
+      "origin": "www.reg.ru",
+      "path": "/billing/payment/choose",
+      "queryKeys": [
+        "bill_sid"
+      ]
+    },
+    "billClasses": [
+      {
+        "isPrepayment": false,
+        "state": "notpaid",
+        "payStatus": "notpayed",
+        "finalOrigin": "www.reg.ru",
+        "finalPath": "/billing/payment/choose",
+        "read": {
+          "method": "GET",
+          "path": "/billing/payment/get_pay_url",
+          "queryKeys": [
+            "bill_sid",
+            "design",
+            "task_id"
+          ],
+          "responseKind": "non-json-failure"
+        }
+      },
+      {
+        "isPrepayment": true,
+        "state": "notpaid",
+        "payStatus": "notpayed",
+        "finalOrigin": "payment.reg.ru",
+        "finalPath": "/{opaque-order}",
+        "read": {
+          "method": "GET",
+          "path": "/{opaque-order}",
+          "queryKeys": [],
+          "responseKind": "non-json-success"
+        }
+      }
+    ],
+    "billScopedMethodListObserved": false,
+    "methodSelected": false,
+    "paymentSubmitted": false,
+    "privateLocatorRetained": false
+  },
+  "notCaptured": [
+    "Amount equality with a documented REG.API unpaid row was not available to verify.",
+    "An expired-session GraphQL failure was not captured because the authorized managed session remained active.",
+    "The observed chooser did not expose a stable bill-scoped payment-method list.",
+    "No method or external provider handoff was selected."
+  ]
+}
