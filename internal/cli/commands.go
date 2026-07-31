@@ -111,7 +111,7 @@ func newAuthCommand(app *appRuntime) *cobra.Command {
 		}),
 		newOperationCommand(app, commandSpec{
 			use:        "refresh",
-			short:      "Refresh service credentials from the portal session",
+			short:      "Refresh the selected profile's portal session",
 			capability: "auth.credential_refresh",
 			action:     "auth.refresh",
 			mutating:   true,

@@ -49,6 +49,7 @@ type Operation struct {
 	ProfileID   string
 	Account     string
 	Arguments   []string
+	Force       bool
 	Credentials CredentialResolver
 }
 

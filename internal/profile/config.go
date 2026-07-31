@@ -21,6 +21,7 @@ type Repository interface {
 	Load() (Config, error)
 	Add(string, Account) (Account, error)
 	SetCurrent(string) error
+	SetPortalSession(string, string) error
 	Remove(string) error
 }
 
@@ -139,6 +140,23 @@ func (r *FileRepository) SetCurrent(name string) error {
 		return fmt.Errorf("account %q does not exist", name)
 	}
 	config.DefaultAccount = name
+	return r.writeUser(config)
+}
+
+func (r *FileRepository) SetPortalSession(name, sessionRef string) error {
+	config, err := loadUserFile(r.userPath)
+	if err != nil {
+		return err
+	}
+	account, exists := config.Accounts[name]
+	if !exists {
+		return fmt.Errorf("account %q does not exist", name)
+	}
+	account.Portal.SessionRef = sessionRef
+	if err := validateAccount(account); err != nil {
+		return err
+	}
+	config.Accounts[name] = account
 	return r.writeUser(config)
 }
 

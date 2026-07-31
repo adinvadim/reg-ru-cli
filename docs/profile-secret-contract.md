@@ -69,6 +69,9 @@ id = "p_aaaaaaaaaaaaaaaaaaaaaaaaaa"
 label = "Personal"
 provider = "reg.ru"
 
+[accounts.personal.portal]
+session_ref = "s_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+
 [accounts.personal.credential_process]
 command = ["/usr/local/bin/credential-helper", "get", "personal"]
 ```
@@ -76,6 +79,14 @@ command = ["/usr/local/bin/credential-helper", "get", "personal"]
 Writes use a private directory, a mode-0600 same-directory temporary file,
 sync/close, and atomic rename. Unknown fields and unsupported schema versions
 fail closed.
+
+The portal `session_ref` is an opaque routing reference, not an exported
+cookie or bearer credential. It points to a separate dedicated Chrome profile
+beneath `<UserConfigDir>/regru/portal-sessions`. That profile contains
+provider-managed browser secrets and is protected by current-user filesystem
+permissions and an exclusive process lock. It is not application-encrypted;
+users back it up and protect it on the same basis as their normal browser
+profile.
 
 The closest project `.regru/config.toml` has a deliberately smaller schema:
 

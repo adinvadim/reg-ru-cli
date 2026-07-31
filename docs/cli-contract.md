@@ -62,6 +62,43 @@ define profiles, endpoints, session handles, or credential routing. Secrets,
 cookies, browser storage, CSRF values, and service credentials are never
 accepted as flags, environment variables, or normal config.
 
+## Browser-backed portal sessions
+
+`auth login` opens a headed Chrome or Chromium process with a dedicated profile
+owned by the selected local account. Authentication fields, CAPTCHA, and
+second-factor challenges stay in that browser. A successful provider refresh
+is reduced in an isolated browser world to an opaque keyed principal digest;
+the CLI never receives the raw principal, cookies, CSRF values, or response
+body.
+
+Each login is staged in a new browser profile. It replaces the committed
+session reference only after authentication and principal matching succeed, so
+cancellation, timeout, contract drift, and account mismatch preserve the
+previous session. `--force` requests a fresh staged login; without it, an
+already active session is returned unchanged.
+
+`auth status` and `auth refresh` both perform an authoritative provider refresh
+inside the committed browser profile. This may extend the provider session.
+Their stable state values are `not-established`, `active`, and `session-lost`;
+the latter deliberately does not guess whether the provider invalidated the
+session because of expiry, logout elsewhere, revocation, or another cause.
+`auth logout` removes local browser state only after the provider confirms that
+the session is gone. An ambiguous logout keeps the local reference and returns
+`outcome_unknown`.
+
+Normal config stores only an opaque `s_...` session reference. Browser state
+lives beneath `<UserConfigDir>/regru/portal-sessions`, separately for every
+account, with an OS-backed exclusive lock while in use. The directory is
+private to the current OS user but is intentionally not wrapped in
+application-managed encryption.
+
+Portal-session failures use stable codes including `missing_browser`,
+`login_cancelled`, `portal_profile_busy`, `authentication_expired`,
+`account_mismatch`, `browser_session_interrupted`,
+`private_contract_drift`, and `outcome_unknown`. Output contains the account
+alias, reduced state, and currently verified capability names only, never the
+opaque session reference or browser profile path.
+
 ## Credential process
 
 An account may configure an external credential helper in the user-only

@@ -78,6 +78,21 @@ func (r *MemoryRepository) SetCurrent(name string) error {
 	return nil
 }
 
+func (r *MemoryRepository) SetPortalSession(name, sessionRef string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	account, exists := r.config.Accounts[name]
+	if !exists {
+		return fmt.Errorf("account %q does not exist", name)
+	}
+	account.Portal.SessionRef = sessionRef
+	if err := validateAccount(account); err != nil {
+		return err
+	}
+	r.config.Accounts[name] = account
+	return nil
+}
+
 func (r *MemoryRepository) Remove(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

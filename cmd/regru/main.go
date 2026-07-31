@@ -4,9 +4,15 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/adinvadim/reg-ru-cli/internal/cli"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/authcli"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
 )
+
+const portalLoginURL = "https://www.reg.ru/user/account/"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -17,7 +23,24 @@ func main() {
 		stop()
 	}()
 
-	exitCode := cli.Execute(ctx, os.Args[1:], cli.DefaultOptions())
+	exitCode := cli.Execute(ctx, os.Args[1:], productionOptions())
 	stop()
 	os.Exit(exitCode)
+}
+
+func productionOptions() cli.Options {
+	options := cli.DefaultOptions()
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return options
+	}
+	stateRoot := filepath.Join(configDir, "regru", "portal-sessions")
+	store := session.NewFileStore(stateRoot)
+	broker := session.NewBroker(
+		store,
+		cdp.NewFactory(cdp.Config{}),
+		session.Options{LoginURL: portalLoginURL},
+	)
+	options.Executor = authcli.New(options.Profiles, broker, options.Executor)
+	return options
 }

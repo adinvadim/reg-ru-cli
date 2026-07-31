@@ -37,6 +37,8 @@ const (
 	CodeConfirmationRequired = "confirmation_required"
 	CodeConfirmationDeclined = "confirmation_declined"
 	CodeMissingBrowser       = "missing_browser"
+	CodeBrowserSession       = "browser_session_interrupted"
+	CodePortalProfileBusy    = "portal_profile_busy"
 	CodeLoginCancelled       = "login_cancelled"
 	CodeAuthExpired          = "authentication_expired"
 	CodeAccountMismatch      = "account_mismatch"
@@ -160,6 +162,26 @@ func MissingBrowser() *CLIError {
 	)
 }
 
+func BrowserSessionInterrupted() *CLIError {
+	return newCLIError(
+		CodeBrowserSession,
+		"the managed browser session was interrupted; retry the read or run regru auth status",
+		ExitNetwork,
+		nil,
+	)
+}
+
+func PortalProfileBusy() *CLIError {
+	err := newCLIError(
+		CodePortalProfileBusy,
+		"another regru command is already using this account's browser profile",
+		ExitAuthentication,
+		nil,
+	)
+	err.Retryable = true
+	return err
+}
+
 func LoginCancelled() *CLIError {
 	return newCLIError(
 		CodeLoginCancelled,
@@ -172,7 +194,7 @@ func LoginCancelled() *CLIError {
 func AuthenticationExpired() *CLIError {
 	return newCLIError(
 		CodeAuthExpired,
-		"the authenticated portal session has expired; run regru auth login again",
+		"the portal session is no longer active; run regru auth login again",
 		ExitAuthentication,
 		nil,
 	)

@@ -263,6 +263,7 @@ func (r *appRuntime) executeOperation(
 		)
 	}
 	operation.ProfileID = r.profile.ID
+	operation.Force = r.flags.force
 	operation.Credentials = r.credentials
 
 	result, err := r.executor.Execute(ctx, operation)

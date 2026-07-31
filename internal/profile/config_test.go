@@ -109,6 +109,46 @@ func TestRepositoryAddsAnAccountWithoutWritingSecrets(t *testing.T) {
 	}
 }
 
+func TestRepositoryAtomicallyUpdatesOnlyOpaquePortalSessionReference(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	repository := NewFileRepository(filepath.Join(directory, "config.toml"), "")
+	account, err := repository.Add("work", Account{
+		ID:       "p_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Provider: "reg.ru",
+	})
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if account.Portal.SessionRef != "" {
+		t.Fatalf("initial session ref = %q, want empty", account.Portal.SessionRef)
+	}
+
+	const sessionRef = "s_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := repository.SetPortalSession("work", sessionRef); err != nil {
+		t.Fatalf("SetPortalSession() error = %v", err)
+	}
+	config, err := repository.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := config.Accounts["work"].Portal.SessionRef; got != sessionRef {
+		t.Errorf("session ref = %q, want %q", got, sessionRef)
+	}
+
+	if err := repository.SetPortalSession("work", ""); err != nil {
+		t.Fatalf("clear SetPortalSession() error = %v", err)
+	}
+	config, err = repository.Load()
+	if err != nil {
+		t.Fatalf("Load() after clear error = %v", err)
+	}
+	if got := config.Accounts["work"].Portal.SessionRef; got != "" {
+		t.Errorf("session ref after clear = %q, want empty", got)
+	}
+}
+
 func writeTestConfig(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
