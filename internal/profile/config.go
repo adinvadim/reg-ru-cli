@@ -32,12 +32,13 @@ type Config struct {
 }
 
 type Account struct {
-	ID          string      `toml:"id" json:"id"`
-	Label       string      `toml:"label,omitempty" json:"label,omitempty"`
-	Provider    string      `toml:"provider" json:"provider"`
-	Portal      Portal      `toml:"portal,omitempty" json:"-"`
-	Cloud       Cloud       `toml:"cloud,omitempty" json:"-"`
-	Credentials Credentials `toml:"credentials,omitempty" json:"-"`
+	ID                string            `toml:"id" json:"id"`
+	Label             string            `toml:"label,omitempty" json:"label,omitempty"`
+	Provider          string            `toml:"provider" json:"provider"`
+	Portal            Portal            `toml:"portal,omitempty" json:"-"`
+	Cloud             Cloud             `toml:"cloud,omitempty" json:"-"`
+	Credentials       Credentials       `toml:"credentials,omitempty" json:"-"`
+	CredentialProcess CredentialProcess `toml:"credential_process,omitempty" json:"-"`
 }
 
 type Portal struct {
@@ -52,6 +53,10 @@ type Credentials struct {
 	CloudVPSRef string `toml:"cloudvps_ref,omitempty" json:"-"`
 	REGAPIRef   string `toml:"regapi_ref,omitempty" json:"-"`
 	S3Ref       string `toml:"s3_ref,omitempty" json:"-"`
+}
+
+type CredentialProcess struct {
+	Command []string `toml:"command,omitempty" json:"-"`
 }
 
 type FileRepository struct {
@@ -289,6 +294,32 @@ func validateAccount(account Account) error {
 		if err := validateOpaque(value); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+	}
+	if err := validateCredentialProcess(account.CredentialProcess); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCredentialProcess(process CredentialProcess) error {
+	if len(process.Command) == 0 {
+		return nil
+	}
+	if len(process.Command) > 64 {
+		return errors.New("credential process has too many arguments")
+	}
+	total := 0
+	for _, argument := range process.Command {
+		total += len(argument)
+		if argument == "" || len(argument) > 4096 || !utf8.ValidString(argument) {
+			return errors.New("credential process argument is invalid")
+		}
+		if strings.IndexByte(argument, 0) >= 0 {
+			return errors.New("credential process argument contains a NUL byte")
+		}
+	}
+	if total > 16<<10 {
+		return errors.New("credential process command is too large")
 	}
 	return nil
 }

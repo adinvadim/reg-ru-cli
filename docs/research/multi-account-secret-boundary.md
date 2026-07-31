@@ -2,6 +2,10 @@
 
 Research date: 2026-07-31
 
+Status: architecture research retained for background. References to public
+stdin/FD ingress are superseded by the lazy external `credential_process`
+contract in [`profile-secret-contract.md`](../profile-secret-contract.md).
+
 ## Question and changed constraint
 
 This note proposes the smallest architecture for

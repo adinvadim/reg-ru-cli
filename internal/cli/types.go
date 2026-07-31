@@ -53,8 +53,7 @@ type Operation struct {
 }
 
 type CredentialResolver interface {
-	Resolve(string) ([]byte, bool)
-	Keys() []string
+	Resolve(context.Context, string) ([]byte, error)
 }
 
 type Result struct {

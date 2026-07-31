@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adinvadim/reg-ru-cli/internal/credentialprocess"
 	"github.com/adinvadim/reg-ru-cli/internal/profile"
-	"github.com/adinvadim/reg-ru-cli/internal/secretinput"
 )
 
 const (
@@ -20,18 +20,18 @@ const (
 	defaultLoginTime  = 10 * time.Minute
 	minLoginTime      = time.Minute
 	maxLoginTime      = 30 * time.Minute
+	maxCredentialTime = 30 * time.Second
 )
 
 type globalFlags struct {
-	account          string
-	json             bool
-	plain            bool
-	noInput          bool
-	dryRun           bool
-	force            bool
-	noColor          bool
-	timeout          time.Duration
-	credentialsStdin bool
+	account string
+	json    bool
+	plain   bool
+	noInput bool
+	dryRun  bool
+	force   bool
+	noColor bool
+	timeout time.Duration
 }
 
 type appRuntime struct {
@@ -46,7 +46,7 @@ type appRuntime struct {
 	profiles      profile.Repository
 	config        profile.Config
 	profile       profile.Account
-	credentials   *secretinput.Resolver
+	credentials   *credentialprocess.Resolver
 	accountSource string
 	flags         globalFlags
 	command       string
@@ -174,21 +174,6 @@ func (r *appRuntime) requireAccount() error {
 	return nil
 }
 
-func (r *appRuntime) loadCredentials() error {
-	if !r.flags.credentialsStdin || r.credentials != nil {
-		return nil
-	}
-	if r.inputIsTTY() {
-		return SecretInputError("credential input must be piped on stdin, not read from a terminal")
-	}
-	resolver, err := secretinput.Load(r.in)
-	if err != nil {
-		return SecretInputError("credential input is invalid")
-	}
-	r.credentials = resolver
-	return nil
-}
-
 func (r *appRuntime) close() {
 	if r.credentials != nil {
 		r.credentials.Close()
@@ -267,8 +252,15 @@ func (r *appRuntime) executeOperation(
 			return err
 		}
 	}
-	if err := r.loadCredentials(); err != nil {
-		return err
+	if r.credentials == nil {
+		credentialTimeout := r.flags.timeout
+		if credentialTimeout > maxCredentialTime {
+			credentialTimeout = maxCredentialTime
+		}
+		r.credentials = credentialprocess.New(
+			r.profile.CredentialProcess.Command,
+			credentialTimeout,
+		)
 	}
 	operation.ProfileID = r.profile.ID
 	operation.Credentials = r.credentials

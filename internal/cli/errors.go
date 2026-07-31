@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/adinvadim/reg-ru-cli/internal/credentialprocess"
 )
 
 const (
@@ -28,8 +30,9 @@ const (
 	CodeConfiguration        = "configuration_error"
 	CodeAccountRequired      = "account_required"
 	CodeAccountNotFound      = "account_not_found"
-	CodeSecretInput          = "invalid_secret_input"
 	CodeSensitiveOutput      = "sensitive_output_blocked"
+	CodeCredentialRequired   = "credential_required"
+	CodeCredentialProcess    = "credential_process_failed"
 	CodeInteractiveRequired  = "interactive_required"
 	CodeConfirmationRequired = "confirmation_required"
 	CodeConfirmationDeclined = "confirmation_declined"
@@ -101,10 +104,6 @@ func AccountNotFound(account string) *CLIError {
 
 func ConfigurationError(message string) *CLIError {
 	return newCLIError(CodeConfiguration, message, ExitConfiguration, nil)
-}
-
-func SecretInputError(message string) *CLIError {
-	return newCLIError(CodeSecretInput, message, ExitConfiguration, nil)
 }
 
 func SensitiveOutputBlocked() *CLIError {
@@ -215,6 +214,47 @@ func classifyError(err error) *CLIError {
 	var cliErr *CLIError
 	if errors.As(err, &cliErr) {
 		return cliErr
+	}
+
+	var processErr *credentialprocess.ProcessError
+	if errors.As(err, &processErr) {
+		switch processErr.Code {
+		case "credential_process_not_configured":
+			return newCLIError(
+				CodeCredentialRequired,
+				"credentials are required; configure credential_process in the user account profile",
+				ExitConfiguration,
+				nil,
+			)
+		case "credential_field_unavailable":
+			return newCLIError(
+				CodeCredentialRequired,
+				"the credential process did not return a required field",
+				ExitConfiguration,
+				nil,
+			)
+		case "credential_process_timeout":
+			return newCLIError(
+				CodeTimeout,
+				"the credential process timed out",
+				ExitTimeout,
+				nil,
+			)
+		case "credential_process_cancelled":
+			return newCLIError(
+				CodeInterrupted,
+				"the credential process was interrupted",
+				ExitInterrupted,
+				nil,
+			)
+		default:
+			return newCLIError(
+				CodeCredentialProcess,
+				"the credential process failed or returned invalid output",
+				ExitConfiguration,
+				nil,
+			)
+		}
 	}
 
 	switch {

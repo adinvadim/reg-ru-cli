@@ -289,7 +289,8 @@ func renderAccountList(names []string, config profile.Config) string {
 
 func accountResult(human, name string, account profile.Account) Result {
 	configured := map[string]bool{
-		"portal": account.Portal.SessionRef != "",
+		"credentialProcess": len(account.CredentialProcess.Command) > 0,
+		"portal":            account.Portal.SessionRef != "",
 		"cloudvps": account.Credentials.CloudVPSRef != "" ||
 			account.Portal.SessionRef != "",
 		"regapi": account.Credentials.REGAPIRef != "",
@@ -345,8 +346,9 @@ func nextAccountAction(account profile.Account) string {
 	switch {
 	case account.Portal.SessionRef == "":
 		return "run auth login to establish a portal session"
-	case account.Credentials.REGAPIRef == "":
-		return "pipe REG.API credentials with --credentials-stdin when billing access is needed"
+	case account.Credentials.REGAPIRef == "" &&
+		len(account.CredentialProcess.Command) == 0:
+		return "configure credential_process in the user account profile when REG.API access is needed"
 	default:
 		return "run capability probe for authenticated reachability"
 	}

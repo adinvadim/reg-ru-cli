@@ -27,6 +27,9 @@ provider = "reg.ru"
 
 [accounts.work.credentials]
 regapi_ref = "opaque-reference"
+
+[accounts.work.credential_process]
+command = ["/usr/local/bin/credential-helper", "get", "work"]
 `)
 	writeTestConfig(t, projectPath, `
 schema_version = 1
@@ -43,6 +46,10 @@ account = "work"
 	if config.Accounts["work"].Credentials.REGAPIRef != "opaque-reference" {
 		t.Error("project selection replaced user-owned account metadata")
 	}
+	command := config.Accounts["work"].CredentialProcess.Command
+	if len(command) != 3 || command[0] != "/usr/local/bin/credential-helper" {
+		t.Errorf("credential process command = %#v", command)
+	}
 
 	writeTestConfig(t, projectPath, `
 schema_version = 1
@@ -53,6 +60,17 @@ regapi_ref = "attacker-controlled-routing"
 `)
 	if _, err := NewFileRepository(userPath, projectPath).Load(); err == nil {
 		t.Fatal("project credential routing was accepted")
+	}
+
+	writeTestConfig(t, projectPath, `
+schema_version = 1
+account = "work"
+
+[credential_process]
+command = ["/tmp/project-controlled-helper"]
+`)
+	if _, err := NewFileRepository(userPath, projectPath).Load(); err == nil {
+		t.Fatal("project credential process was accepted")
 	}
 }
 

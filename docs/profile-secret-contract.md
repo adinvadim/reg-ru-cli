@@ -1,4 +1,4 @@
-# Account profiles and secret-input contract
+# Account profiles and credential-process contract
 
 Status: established by the Wayfinder ticket
 [Task: implement provider-neutral multi-account profiles](https://github.com/adinvadim/reg-ru-cli/issues/4).
@@ -6,20 +6,29 @@ Status: established by the Wayfinder ticket
 ## Boundary
 
 The base `regru` binary has no concrete secret-store integration. It does not
-discover or invoke a credential producer, interpret a vendor reference, or
-fall back to plaintext storage. External tooling may provide command-scoped
-credentials through an anonymous pipe:
+discover a credential store, interpret a vendor-specific reference, or fall
+back to plaintext storage. Instead, the user profile may name a generic
+external credential helper:
 
-```sh
-credential-source --format regru.secret-input/v1 |
-  regru --account work --credentials-stdin --no-input billing balance
+```toml
+[accounts.work.credential_process]
+command = ["/usr/local/bin/credential-helper", "get", "work"]
 ```
 
-The producer writes one strict JSON document and closes the pipe:
+Normal commands remain conventional:
+
+```sh
+regru --account work --no-input billing balance --json
+```
+
+When an adapter first requests a credential, `regru` starts the configured
+argv directly, without shell parsing. The helper may obtain credentials by any
+means outside `regru`; the binary knows only the process contract. The helper
+writes one strict JSON document to its captured stdout:
 
 ```json
 {
-  "schemaVersion": "regru.secret-input/v1",
+  "schemaVersion": "regru.credential-process/v1",
   "fields": {
     "regapi.username": "<private>",
     "regapi.password": "<private>"
@@ -33,17 +42,23 @@ Supported field families are `portal.login` plus `portal.password`,
 all-or-nothing. Every value, including login names and access-key identifiers,
 is private.
 
-Input is explicit, capped at 64 KiB, strict-schema, duplicate-key rejecting,
-and command-scoped. Credential values never enter arguments, environment
-variables, profile config, errors, results, logs, or a child process. Owned
-buffers are cleared on release as a best-effort lifetime reduction, not as a
+The output is capped at 64 KiB, strict-schema, duplicate-key rejecting, and
+command-scoped. The helper is lazy, runs at most once per invocation, and has a
+30-second maximum runtime further bounded by the command timeout. Its stdout is
+never inherited by the terminal, its stderr is discarded, and failures expose
+only stable `regru` errors.
+
+Credential values never enter `regru` arguments, environment variables,
+profile config, errors, results, logs, or another child process. The helper
+command is routing metadata and must not contain secret values. Owned buffers
+are cleared on release as a best-effort lifetime reduction, not as a
 cryptographic erasure promise.
 
 ## User profiles
 
 The user file is `<UserConfigDir>/regru/config.toml`. It contains local aliases,
-random stable IDs, labels, provider metadata, and optional opaque session/store
-references:
+random stable IDs, labels, provider metadata, optional opaque session
+references, and optional credential-process routing:
 
 ```toml
 schema_version = 1
@@ -53,6 +68,9 @@ default_account = "personal"
 id = "p_aaaaaaaaaaaaaaaaaaaaaaaaaa"
 label = "Personal"
 provider = "reg.ru"
+
+[accounts.personal.credential_process]
+command = ["/usr/local/bin/credential-helper", "get", "personal"]
 ```
 
 Writes use a private directory, a mode-0600 same-directory temporary file,
@@ -67,7 +85,7 @@ account = "work"
 ```
 
 It can select an existing alias only. A checked-out project cannot redirect
-authenticated endpoints or replace credential/session references.
+authenticated endpoints or replace credential, helper, or session routing.
 
 ## Selection and commands
 
@@ -86,6 +104,6 @@ only configured profile.
 
 `account list`, `account show`, and `account doctor` expose aliases, labels,
 provider name, and configured booleans only. They never render stable IDs,
-opaque references, environment IDs, or provider identity. `capability list`
-reports local configured/not-configured state; `capability probe` is the
-bounded provider-facing verification seam.
+opaque references, the credential-process command, environment IDs, or
+provider identity. `capability list` reports local configured/not-configured
+state; `capability probe` is the bounded provider-facing verification seam.

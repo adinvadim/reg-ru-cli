@@ -16,6 +16,10 @@ func NewMemoryRepository(config Config) *MemoryRepository {
 	}
 	accounts := make(map[string]Account, len(config.Accounts))
 	for name, account := range config.Accounts {
+		account.CredentialProcess.Command = append(
+			[]string(nil),
+			account.CredentialProcess.Command...,
+		)
 		accounts[name] = account
 	}
 	config.Accounts = accounts
@@ -28,6 +32,10 @@ func (r *MemoryRepository) Load() (Config, error) {
 	config := r.config
 	config.Accounts = make(map[string]Account, len(r.config.Accounts))
 	for name, account := range r.config.Accounts {
+		account.CredentialProcess.Command = append(
+			[]string(nil),
+			account.CredentialProcess.Command...,
+		)
 		config.Accounts[name] = account
 	}
 	return config, nil
@@ -52,6 +60,10 @@ func (r *MemoryRepository) Add(name string, account Account) (Account, error) {
 	if account.Provider == "" {
 		account.Provider = "reg.ru"
 	}
+	account.CredentialProcess.Command = append(
+		[]string(nil),
+		account.CredentialProcess.Command...,
+	)
 	r.config.Accounts[name] = account
 	return account, nil
 }

@@ -2,6 +2,10 @@
 
 Research date: 2026-07-31
 
+Status: transport research retained for background. Its stdin-facing product
+decision is superseded by the lazy external `credential_process` contract in
+[`profile-secret-contract.md`](../profile-secret-contract.md).
+
 ## Scope and evidence standard
 
 This note decides how an external process can supply login names, passwords,

@@ -30,8 +30,7 @@ func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
 			}
 			if spec.interactive &&
 				!app.flags.dryRun &&
-				(app.flags.noInput ||
-					(!app.inputIsTTY() && !app.flags.credentialsStdin)) {
+				(app.flags.noInput || !app.inputIsTTY()) {
 				return InteractiveRequired(spec.action)
 			}
 

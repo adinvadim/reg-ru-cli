@@ -2,6 +2,10 @@
 
 Research date: 2026-07-31
 
+Status: low-level stream research retained for background. Its proposed public
+stdin API is superseded by the lazy external `credential_process` contract in
+[`profile-secret-contract.md`](../profile-secret-contract.md).
+
 ## Scope and evidence
 
 This note defines a provider-neutral Go API for receiving one login, password,

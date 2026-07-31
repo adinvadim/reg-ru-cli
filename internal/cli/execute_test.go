@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -412,14 +415,37 @@ func TestAccountCommandsManageOnlyNonSecretProfileMetadata(t *testing.T) {
 	}
 }
 
-func TestCredentialEnvelopeIsCommandScopedAndCannotReachOutput(t *testing.T) {
-	const sentinel = "synthetic-secret-never-render"
-	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+func TestAccountShowReportsCredentialProcessWithoutExposingCommand(t *testing.T) {
+	const helperPath = "/private/path/credential-helper"
+	run := runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--account", "personal", "--json", "account", "show"},
+		"",
+		false,
+		nil,
+		nil,
+		profilesWithCredentialProcess([]string{helperPath, "get", "personal"}),
+	)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if !strings.Contains(run.stdout, `"credentialProcess":true`) {
+		t.Errorf("credential process state is missing: %s", run.stdout)
+	}
+	if strings.Contains(run.stdout, helperPath) {
+		t.Errorf("credential process command was exposed: %s", run.stdout)
+	}
+}
+
+func TestCredentialProcessIsLazyAndCannotReachOutput(t *testing.T) {
+	const sentinel = "synthetic-process-password"
+	executor := executorFunc(func(ctx context.Context, operation Operation) (Result, error) {
 		if operation.Credentials == nil {
 			t.Fatal("executor did not receive credential resolver")
 		}
-		value, ok := operation.Credentials.Resolve("regapi.password")
-		if !ok || string(value) != sentinel {
+		value, err := operation.Credentials.Resolve(ctx, "regapi.password")
+		if err != nil || string(value) != sentinel {
 			t.Fatal("executor did not resolve expected synthetic credential")
 		}
 		return Result{
@@ -428,20 +454,18 @@ func TestCredentialEnvelopeIsCommandScopedAndCannotReachOutput(t *testing.T) {
 			Data:  map[string]string{"value": string(value)},
 		}, nil
 	})
-	input := `{"schemaVersion":"regru.secret-input/v1","fields":{"regapi.username":"synthetic-user","regapi.password":"` +
-		sentinel + `"}}`
-	run := runCLI(
+	run := runCLIWithProfiles(
 		t,
 		nil,
 		[]string{
-			"--credentials-stdin",
 			"--account", "personal",
 			"auth", "status",
 		},
-		input,
+		"",
 		false,
 		nil,
 		executor,
+		profilesWithCredentialProcess(cliHelperCommand("regapi")),
 	)
 	if run.exitCode != ExitGeneral {
 		t.Fatalf("exit code = %d, want %d; stderr=%q", run.exitCode, ExitGeneral, run.stderr)
@@ -457,33 +481,53 @@ func TestCredentialEnvelopeIsCommandScopedAndCannotReachOutput(t *testing.T) {
 	}
 }
 
-func TestCredentialStdinMutationRequiresForceBeforeReading(t *testing.T) {
-	run := runCLI(
+func TestCredentialProcessIsNotRunForDryRunOrUnusedPlaceholder(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "credential-process-ran")
+	profiles := profilesWithCredentialProcess(
+		cliHelperCommand("mark", marker),
+	)
+
+	run := runCLIWithProfiles(
 		t,
 		nil,
 		[]string{
-			"--credentials-stdin",
 			"--account", "personal",
-			"auth", "logout",
+			"--dry-run",
+			"vps", "delete", "vps-id",
 		},
-		"not valid secret input",
+		"",
 		false,
 		nil,
 		nil,
+		profiles,
 	)
-	if run.exitCode != ExitInteractionRequired {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", run.exitCode, ExitInteractionRequired, run.stderr)
+	if run.exitCode != ExitOK {
+		t.Fatalf("dry-run exit code = %d; stderr=%q", run.exitCode, run.stderr)
 	}
-	if !strings.Contains(run.stderr, CodeConfirmationRequired) {
-		t.Errorf("credentials were read before confirmation: %s", run.stderr)
+
+	run = runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--account", "personal", "vps", "list"},
+		"",
+		false,
+		nil,
+		nil,
+		profiles,
+	)
+	if run.exitCode != ExitCapability {
+		t.Fatalf("placeholder exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("credential process ran without a credential request")
 	}
 }
 
 func TestCredentialMaterialInAdapterErrorIsBlocked(t *testing.T) {
-	const sentinel = "synthetic-error-secret"
-	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
-		value, ok := operation.Credentials.Resolve("cloudvps.token")
-		if !ok {
+	const sentinel = "synthetic-process-token"
+	executor := executorFunc(func(ctx context.Context, operation Operation) (Result, error) {
+		value, err := operation.Credentials.Resolve(ctx, "cloudvps.token")
+		if err != nil {
 			t.Fatal("executor did not receive credential")
 		}
 		return Result{}, &CLIError{
@@ -495,20 +539,18 @@ func TestCredentialMaterialInAdapterErrorIsBlocked(t *testing.T) {
 			},
 		}
 	})
-	input := `{"schemaVersion":"regru.secret-input/v1","fields":{"cloudvps.token":"` +
-		sentinel + `"}}`
-	run := runCLI(
+	run := runCLIWithProfiles(
 		t,
 		nil,
 		[]string{
-			"--credentials-stdin",
 			"--account", "personal",
 			"vps", "list",
 		},
-		input,
+		"",
 		false,
 		nil,
 		executor,
+		profilesWithCredentialProcess(cliHelperCommand("cloudvps")),
 	)
 	if run.exitCode != ExitGeneral {
 		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
@@ -519,27 +561,119 @@ func TestCredentialMaterialInAdapterErrorIsBlocked(t *testing.T) {
 	}
 }
 
-func TestCredentialStdinDryRunDoesNotConsumeInput(t *testing.T) {
+func TestCredentialProcessFailureUsesStableRedactedError(t *testing.T) {
+	executor := executorFunc(func(ctx context.Context, operation Operation) (Result, error) {
+		_, err := operation.Credentials.Resolve(ctx, "cloudvps.token")
+		return Result{}, err
+	})
+	run := runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--account", "personal", "vps", "list"},
+		"",
+		false,
+		nil,
+		executor,
+		profilesWithCredentialProcess(cliHelperCommand("fail")),
+	)
+	if run.exitCode != ExitConfiguration {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if !strings.Contains(run.stderr, CodeCredentialProcess) ||
+		strings.Contains(run.stderr, "synthetic-helper-stderr-secret") {
+		t.Errorf("credential process error is not stable and redacted: %q", run.stderr)
+	}
+}
+
+func TestCredentialsStdinFlagDoesNotExist(t *testing.T) {
 	run := runCLI(
 		t,
 		nil,
 		[]string{
 			"--credentials-stdin",
 			"--account", "personal",
-			"--dry-run",
-			"auth", "logout",
+			"auth", "status",
 		},
-		"deliberately invalid and unread credential input",
+		"",
 		false,
 		nil,
 		nil,
 	)
-	if run.exitCode != ExitOK {
-		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	if run.exitCode != ExitUsage {
+		t.Fatalf("exit code = %d, want usage; stderr=%q", run.exitCode, run.stderr)
 	}
-	if !strings.Contains(run.stdout, "Would run auth.logout") {
-		t.Errorf("unexpected dry-run output: %q", run.stdout)
+	if !strings.Contains(run.stderr, "unknown flag") {
+		t.Errorf("removed flag was not rejected clearly: %q", run.stderr)
 	}
+}
+
+func profilesWithCredentialProcess(command []string) profile.Repository {
+	return profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts: map[string]profile.Account{
+			"personal": {
+				ID:       "p_" + strings.Repeat("a", 26),
+				Provider: "reg.ru",
+				CredentialProcess: profile.CredentialProcess{
+					Command: command,
+				},
+			},
+		},
+	})
+}
+
+func cliHelperCommand(mode string, arguments ...string) []string {
+	command := []string{
+		os.Args[0],
+		"-test.run=^TestCLICredentialProcessHelper$",
+		"--",
+		mode,
+	}
+	return append(command, arguments...)
+}
+
+func TestCLICredentialProcessHelper(t *testing.T) {
+	arguments := []string{}
+	for index, argument := range os.Args {
+		if argument == "--" {
+			arguments = os.Args[index+1:]
+			break
+		}
+	}
+	if len(arguments) == 0 {
+		return
+	}
+	switch arguments[0] {
+	case "regapi":
+		fmt.Fprint(os.Stdout, `{
+			"schemaVersion":"regru.credential-process/v1",
+			"fields":{
+				"regapi.username":"synthetic-process-user",
+				"regapi.password":"synthetic-process-password"
+			}
+		}`)
+	case "cloudvps":
+		fmt.Fprint(os.Stdout, `{
+			"schemaVersion":"regru.credential-process/v1",
+			"fields":{"cloudvps.token":"synthetic-process-token"}
+		}`)
+	case "mark":
+		if len(arguments) == 2 {
+			if err := os.WriteFile(arguments[1], []byte("ran"), 0o600); err != nil {
+				os.Exit(21)
+			}
+		}
+		fmt.Fprint(os.Stdout, `{
+			"schemaVersion":"regru.credential-process/v1",
+			"fields":{"cloudvps.token":"synthetic-process-token"}
+		}`)
+	case "fail":
+		fmt.Fprint(os.Stderr, "synthetic-helper-stderr-secret")
+		os.Exit(23)
+	default:
+		os.Exit(22)
+	}
+	os.Exit(0)
 }
 
 func TestSelectionPrecedenceIncludesProjectAndUserDefaults(t *testing.T) {
