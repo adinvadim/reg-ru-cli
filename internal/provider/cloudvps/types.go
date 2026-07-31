@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ID preserves provider identifiers without assuming that they remain numeric.
@@ -227,6 +228,47 @@ type CatalogQuery struct {
 	Disk         int
 	ImageType    string
 	PrivateImage *bool
+}
+
+type BalanceSnapshot struct {
+	Source         string         `json:"source"`
+	Currency       string         `json:"currency"`
+	CurrencySource string         `json:"currencySource"`
+	ObservedAt     time.Time      `json:"observedAt"`
+	Cash           string         `json:"cash"`
+	Bonus          string         `json:"bonus"`
+	DaysLeft       int64          `json:"daysLeft"`
+	HoursLeft      int64          `json:"hoursLeft"`
+	HourlyCost     string         `json:"hourlyCost"`
+	MonthlyCost    string         `json:"monthlyCost"`
+	State          string         `json:"state,omitempty"`
+	Resources      []CostResource `json:"resources"`
+}
+
+type CostResource struct {
+	Plan       string         `json:"plan"`
+	Type       string         `json:"type"`
+	Price      string         `json:"price"`
+	PriceMonth string         `json:"priceMonth"`
+	Name       string         `json:"name,omitempty"`
+	ResourceID ID             `json:"resourceId,omitempty"`
+	State      string         `json:"state,omitempty"`
+	Linked     []CostResource `json:"linked"`
+}
+
+type RefillHistory struct {
+	Source     string    `json:"source"`
+	ObservedAt time.Time `json:"observedAt"`
+	Currency   string    `json:"currency"`
+	Refills    []Refill  `json:"refills"`
+}
+
+type Refill struct {
+	Kind            string `json:"kind"`
+	RawType         string `json:"rawType,omitempty"`
+	Amount          string `json:"amount"`
+	ProviderDate    string `json:"providerDate"`
+	MetadataPresent bool   `json:"metadataPresent"`
 }
 
 type Mutation[T any] struct {

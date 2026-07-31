@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type ClientOptions struct {
 	RequestTimeout time.Duration
 	Sleep          func(context.Context, time.Duration) error
 	Jitter         func(time.Duration) time.Duration
+	Now            func() time.Time
 }
 
 type Client struct {
@@ -39,6 +41,7 @@ type Client struct {
 	requestTimeout time.Duration
 	sleep          func(context.Context, time.Duration) error
 	jitter         func(time.Duration) time.Duration
+	now            func() time.Time
 }
 
 func New(token []byte, options ClientOptions) (*Client, error) {
@@ -62,6 +65,10 @@ func New(token []byte, options ClientOptions) (*Client, error) {
 	if jitter == nil {
 		jitter = defaultJitter
 	}
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
 	if len(token) == 0 {
 		return nil, errors.New("CloudVPS token is empty")
 	}
@@ -76,6 +83,7 @@ func New(token []byte, options ClientOptions) (*Client, error) {
 		requestTimeout: requestTimeout,
 		sleep:          sleep,
 		jitter:         jitter,
+		now:            now,
 	}, nil
 }
 
@@ -84,6 +92,151 @@ func (c *Client) Close() {
 		c.token[index] = 0
 	}
 	c.token = nil
+}
+
+func (c *Client) GetBalanceData(ctx context.Context) (BalanceSnapshot, error) {
+	var envelope map[string]json.RawMessage
+	if err := c.get(ctx, "/v1/balance_data", nil, &envelope); err != nil {
+		return BalanceSnapshot{}, err
+	}
+	raw, exists := envelope["balance_data"]
+	if !exists || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return BalanceSnapshot{}, &ContractError{Message: "CloudVPS balance response is missing balance_data"}
+	}
+	var wire balanceDataWire
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&wire); err != nil || wire.Resources == nil {
+		return BalanceSnapshot{}, &ContractError{Message: "decode CloudVPS balance_data response"}
+	}
+	cash, err := decimalNumber(wire.Cash)
+	if err != nil {
+		return BalanceSnapshot{}, &ContractError{Message: "decode CloudVPS cash balance"}
+	}
+	bonus, err := decimalNumber(wire.Bonus)
+	if err != nil {
+		return BalanceSnapshot{}, &ContractError{Message: "decode CloudVPS bonus balance"}
+	}
+	hourly, err := decimalNumber(wire.HourlyCost)
+	if err != nil {
+		return BalanceSnapshot{}, &ContractError{Message: "decode CloudVPS hourly cost"}
+	}
+	monthly, err := decimalNumber(wire.MonthlyCost)
+	if err != nil {
+		return BalanceSnapshot{}, &ContractError{Message: "decode CloudVPS monthly cost"}
+	}
+	resources := make([]CostResource, 0, len(*wire.Resources))
+	for _, item := range *wire.Resources {
+		resource, err := normalizeCostResource(item, 0)
+		if err != nil {
+			return BalanceSnapshot{}, err
+		}
+		resources = append(resources, resource)
+	}
+	return BalanceSnapshot{
+		Source: "cloudvps", Currency: "RUB", CurrencySource: "cloudvps_documentation",
+		ObservedAt: c.now().UTC(), Cash: cash, Bonus: bonus,
+		DaysLeft: wire.DaysLeft, HoursLeft: wire.HoursLeft,
+		HourlyCost: hourly, MonthlyCost: monthly, State: wire.State,
+		Resources: resources,
+	}, nil
+}
+
+func (c *Client) GetBillingHistory(ctx context.Context) (RefillHistory, error) {
+	var envelope map[string]json.RawMessage
+	if err := c.get(ctx, "/v1/billing_history", nil, &envelope); err != nil {
+		return RefillHistory{}, err
+	}
+	raw, exists := envelope["billing_history"]
+	if !exists || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return RefillHistory{}, &ContractError{Message: "CloudVPS refill response is missing billing_history"}
+	}
+	var wire []struct {
+		Amount            string          `json:"amount"`
+		Date              string          `json:"date"`
+		DescriptionParams json.RawMessage `json:"description_params"`
+		Type              string          `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return RefillHistory{}, &ContractError{Message: "decode CloudVPS refill history"}
+	}
+	refills := make([]Refill, 0, len(wire))
+	for _, item := range wire {
+		if !safeDecimal(item.Amount) || strings.TrimSpace(item.Date) == "" || strings.TrimSpace(item.Type) == "" {
+			return RefillHistory{}, &ContractError{Message: "CloudVPS refill record is incomplete"}
+		}
+		kind := "cloudvps_unknown_refill"
+		rawType := item.Type
+		switch item.Type {
+		case "refill":
+			kind, rawType = "cloudvps_refill", ""
+		case "refill_bonus":
+			kind, rawType = "cloudvps_bonus_refill", ""
+		}
+		metadata := bytes.TrimSpace(item.DescriptionParams)
+		refills = append(refills, Refill{
+			Kind: kind, RawType: rawType, Amount: item.Amount, ProviderDate: item.Date,
+			MetadataPresent: len(metadata) > 0 && !bytes.Equal(metadata, []byte("null")),
+		})
+	}
+	return RefillHistory{
+		Source: "cloudvps", ObservedAt: c.now().UTC(), Currency: "RUB", Refills: refills,
+	}, nil
+}
+
+type balanceDataWire struct {
+	Cash        json.Number         `json:"balance"`
+	Bonus       json.Number         `json:"bonus_balance"`
+	DaysLeft    int64               `json:"days_left"`
+	Resources   *[]costResourceWire `json:"detalization"`
+	HourlyCost  json.Number         `json:"hourly_cost"`
+	HoursLeft   int64               `json:"hours_left"`
+	MonthlyCost json.Number         `json:"monthly_cost"`
+	State       string              `json:"state"`
+}
+
+type costResourceWire struct {
+	Plan       string              `json:"plan"`
+	Type       string              `json:"type"`
+	Price      string              `json:"price"`
+	PriceMonth string              `json:"price_month"`
+	Linked     *[]costResourceWire `json:"linked"`
+	Name       string              `json:"name"`
+	ResourceID ID                  `json:"resource_id"`
+	State      string              `json:"state"`
+}
+
+var safeDecimalPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]{0,63})(?:\.[0-9]{1,32})?$`)
+
+func decimalNumber(value json.Number) (string, error) {
+	text := value.String()
+	if !safeDecimal(text) {
+		return "", errors.New("unsafe decimal")
+	}
+	return text, nil
+}
+
+func safeDecimal(value string) bool { return safeDecimalPattern.MatchString(value) }
+
+func normalizeCostResource(wire costResourceWire, depth int) (CostResource, error) {
+	if depth > 32 || wire.Plan == "" || wire.Type == "" || !safeDecimal(wire.Price) || !safeDecimal(wire.PriceMonth) {
+		return CostResource{}, &ContractError{Message: "CloudVPS resource cost is incomplete"}
+	}
+	linked := []CostResource{}
+	if wire.Linked != nil {
+		linked = make([]CostResource, 0, len(*wire.Linked))
+		for _, child := range *wire.Linked {
+			normalized, err := normalizeCostResource(child, depth+1)
+			if err != nil {
+				return CostResource{}, err
+			}
+			linked = append(linked, normalized)
+		}
+	}
+	return CostResource{
+		Plan: wire.Plan, Type: wire.Type, Price: wire.Price, PriceMonth: wire.PriceMonth,
+		Name: wire.Name, ResourceID: wire.ResourceID, State: wire.State, Linked: linked,
+	}, nil
 }
 
 func (c *Client) ListServers(ctx context.Context) ([]Server, error) {

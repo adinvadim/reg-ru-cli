@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/adinvadim/reg-ru-cli/internal/cli"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/billing"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/cloudvps"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/authcli"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
@@ -44,6 +45,7 @@ func productionOptions() cli.Options {
 		session.Options{LoginURL: portalLoginURL},
 	)
 	options.Executor = cloudvps.NewExecutor(cloudvps.ExecutorOptions{}, options.Executor)
+	options.Executor = billing.NewExecutor(billing.ExecutorOptions{}, options.Executor)
 	options.Executor = regs3.NewExecutor(options.Profiles, regs3.ExecutorOptions{
 		ControlPlane: regs3.NewPortalControlPlane(broker),
 	}, options.Executor)

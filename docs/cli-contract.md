@@ -34,7 +34,9 @@ regru s3 bucket list|show|create|update|delete
 regru s3 bucket policy|cors|lifecycle|website get|set|delete
 regru s3 bucket versioning get|set
 regru s3 credentials list|create|revoke
-regru billing balance|invoices|invoice|checkout
+regru billing balance|history
+regru billing invoice list|show|status|create|delete|payment-link
+regru billing invoice payment-method list|set
 regru support ticket list|get|create|reply|attach|close|reopen
 regru completion bash|zsh|fish|powershell
 ```
@@ -68,6 +70,8 @@ to 10 minutes and is bounded to 1 second–24 hours. Mutations wait by default;
 [CloudVPS command guide](cloudvps.md).
 REG.RU S3 commands use separate private-control-plane and signed-protocol
 adapters; see the [S3 command guide](s3.md).
+Billing commands preserve the boundary between REG.API invoices and CloudVPS
+finance; see the [billing command guide](billing.md).
 
 Account selection follows this precedence:
 

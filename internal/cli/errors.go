@@ -182,6 +182,22 @@ func ProviderError(
 	return err
 }
 
+func ProviderBulkOperationFailed(provider, operation string, outcomes []any) *CLIError {
+	if outcomes == nil {
+		outcomes = []any{}
+	}
+	return newCLIError(
+		CodeNetwork,
+		fmt.Sprintf("%s did not complete every %s item", provider, operation),
+		ExitNetwork,
+		map[string]any{
+			"provider":  provider,
+			"operation": operation,
+			"outcomes":  outcomes,
+		},
+	)
+}
+
 func ProviderAuthenticationError(provider string) *CLIError {
 	return newCLIError(
 		CodeAuthExpired,

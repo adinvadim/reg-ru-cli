@@ -925,6 +925,131 @@ func TestCloudVPSCommandTreeExposesTicketSurface(t *testing.T) {
 	}
 }
 
+func TestBillingCommandTreeExposesDocumentedAndGatedSurface(t *testing.T) {
+	run := runCLI(t, nil, []string{"billing", "--help"}, "", false, nil, nil)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	for _, command := range []string{"balance", "history", "invoice"} {
+		if !strings.Contains(run.stdout, command) {
+			t.Errorf("billing help does not expose %q:\n%s", command, run.stdout)
+		}
+	}
+
+	run = runCLI(t, nil, []string{"billing", "invoice", "--help"}, "", false, nil, nil)
+	if run.exitCode != ExitOK {
+		t.Fatalf("invoice help exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	for _, command := range []string{
+		"create", "delete", "list", "payment-link", "payment-method", "show", "status",
+	} {
+		if !strings.Contains(run.stdout, command) {
+			t.Errorf("invoice help does not expose %q:\n%s", command, run.stdout)
+		}
+	}
+}
+
+func TestBillingCommandsPassTypedParameters(t *testing.T) {
+	var received Operation
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		received = operation
+		return Result{Human: "ok"}, nil
+	})
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--account", "personal",
+			"billing", "invoice", "list",
+			"--limit", "25", "--offset", "50",
+		},
+		"",
+		false,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if received.Action != "billing.invoice.list" {
+		t.Fatalf("operation = %+v", received)
+	}
+	if values := received.Parameters["limit"]; len(values) != 1 || values[0] != "25" {
+		t.Errorf("limit = %v", values)
+	}
+	if values := received.Parameters["offset"]; len(values) != 1 || values[0] != "50" {
+		t.Errorf("offset = %v", values)
+	}
+}
+
+func TestBillingPaymentTypeMutationRequiresConfirmation(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		calls++
+		return Result{Human: operation.Action}, nil
+	})
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--account", "personal",
+			"billing", "invoice", "payment-method", "set", "123",
+			"--type", "prepay", "--currency", "RUR",
+		},
+		"",
+		false,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitInteractionRequired || calls != 0 {
+		t.Fatalf("exit code = %d, calls = %d, stderr=%q", run.exitCode, calls, run.stderr)
+	}
+}
+
+func TestBillingCommandsRejectUnsafeProviderInputsBeforeExecutor(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, _ Operation) (Result, error) {
+		calls++
+		return Result{}, nil
+	})
+	for _, args := range [][]string{
+		{"--account", "personal", "billing", "invoice", "list", "--limit", "1025"},
+		{"--account", "personal", "--force", "billing", "invoice", "payment-method", "set", "123", "--type", "yacard", "--currency", "RUR"},
+		{"--account", "personal", "billing", "balance", "--currency", "RUB"},
+	} {
+		run := runCLI(t, nil, args, "", false, nil, executor)
+		if run.exitCode != ExitUsage {
+			t.Errorf("args %v exit code = %d; stderr=%q", args, run.exitCode, run.stderr)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("invalid billing input reached executor %d time(s)", calls)
+	}
+}
+
+func TestGatedBillingMutationsFailBeforeConfirmationOrDryRun(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, _ Operation) (Result, error) {
+		calls++
+		return Result{}, nil
+	})
+	for _, args := range [][]string{
+		{"--account", "personal", "billing", "invoice", "payment-link", "42"},
+		{"--account", "personal", "--dry-run", "billing", "invoice", "create"},
+	} {
+		run := runCLI(t, nil, args, "", false, nil, executor)
+		if run.exitCode != ExitCapability {
+			t.Errorf("args %v exit code = %d; stdout=%q stderr=%q", args, run.exitCode, run.stdout, run.stderr)
+		}
+		if !strings.Contains(run.stderr, CodeCapability) {
+			t.Errorf("args %v stderr = %q", args, run.stderr)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("gated billing command reached executor %d time(s)", calls)
+	}
+}
+
 func TestCloudVPSCreatePassesTypedParametersAndNoWait(t *testing.T) {
 	var received Operation
 	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {

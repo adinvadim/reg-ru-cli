@@ -333,7 +333,11 @@ func localCapabilityStates(account profile.Account) map[string]string {
 			account.Credentials.CloudVPSRef != "" ||
 				account.Portal.SessionRef != "",
 		),
-		"billing.read": state(account.Credentials.REGAPIRef != ""),
+		"billing.read": state(
+			account.Credentials.REGAPIRef != "" ||
+				account.Credentials.CloudVPSRef != "",
+		),
+		"billing.checkout": state(account.Portal.SessionRef != ""),
 		"s3.bucket": state(
 			account.Credentials.S3Ref != "" ||
 				account.Portal.SessionRef != "",

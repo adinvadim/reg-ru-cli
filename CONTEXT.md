@@ -33,3 +33,23 @@ revocation, or another provider-side invalidation.
 
 An environment selected beneath an authenticated portal principal. Selecting a
 Cloud environment does not authenticate or switch the portal principal.
+
+## Billing
+
+### REG.API invoice
+
+A bill returned by REG.API 2 with a stable `bill_id`, payment state, and—when
+listed—currency, amounts, and service items. It is not a CloudVPS refill.
+
+### CloudVPS refill
+
+A credit record from CloudVPS `/v1/billing_history`. It has no published bill
+identifier, currency field, payment status, or supported join to a REG.API
+invoice. Amount-and-date similarity never establishes such a join.
+
+### Checkout handoff
+
+A confirmed transition into a user-visible, session-bound REG.RU payment
+journey. It is not a shareable payment link. Private locators such as
+`bill_sid` stay inside the browser adapter and never enter CLI output or
+configuration.

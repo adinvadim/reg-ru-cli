@@ -74,6 +74,96 @@ func TestClientNormalizesV1ResourcesAndUsesBearerAuthentication(t *testing.T) {
 	}
 }
 
+func TestClientDecodesFinancialSnapshotsWithoutFloatConversion(t *testing.T) {
+	observedAt := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/balance_data":
+			_, _ = io.WriteString(writer, `{
+				"balance_data":{
+					"balance":2154.550,
+					"bonus_balance":41736.72,
+					"days_left":424,
+					"detalization":[{
+						"plan":"cloud-2","type":"reglet","price":"4.20",
+						"price_month":"2800.00","resource_id":9007199254740993,
+						"linked":[]
+					}],
+					"hourly_cost":4.31128,
+					"hours_left":10180,
+					"monthly_cost":2896.83,
+					"state":"active"
+				}
+			}`)
+		case "/v1/billing_history":
+			_, _ = io.WriteString(writer, `{
+				"billing_history":[
+					{"amount":"100.00","date":"2026-07-30 11:22:09","description_params":{},"type":"refill"},
+					{"amount":"5.50","date":"2026-07-31 12:00:00","description_params":null,"type":"refill_bonus"}
+				]
+			}`)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New([]byte("fixture-token"), ClientOptions{
+		BaseURL: server.URL, HTTPClient: server.Client(), RequestTimeout: time.Second,
+		Now: func() time.Time { return observedAt },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer client.Close()
+
+	balance, err := client.GetBalanceData(context.Background())
+	if err != nil {
+		t.Fatalf("GetBalanceData: %v", err)
+	}
+	if balance.Cash != "2154.550" || balance.Bonus != "41736.72" || balance.Currency != "RUB" {
+		t.Fatalf("balance = %+v", balance)
+	}
+	if !balance.ObservedAt.Equal(observedAt) || len(balance.Resources) != 1 {
+		t.Fatalf("balance snapshot = %+v", balance)
+	}
+	if balance.Resources[0].ResourceID != "9007199254740993" || balance.Resources[0].Price != "4.20" {
+		t.Fatalf("resource = %+v", balance.Resources[0])
+	}
+
+	history, err := client.GetBillingHistory(context.Background())
+	if err != nil {
+		t.Fatalf("GetBillingHistory: %v", err)
+	}
+	if !history.ObservedAt.Equal(observedAt) || len(history.Refills) != 2 {
+		t.Fatalf("history = %+v", history)
+	}
+	if history.Refills[0].Kind != "cloudvps_refill" || history.Refills[1].Kind != "cloudvps_bonus_refill" {
+		t.Fatalf("refill kinds = %+v", history.Refills)
+	}
+}
+
+func TestClientRejectsMissingFinancialEnvelopeAndUnsafeDecimal(t *testing.T) {
+	for _, body := range []string{
+		`{}`,
+		`{"balance_data":{"balance":1e999,"bonus_balance":0,"days_left":0,"detalization":[],"hourly_cost":0,"hours_left":0,"monthly_cost":0}}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, body)
+		}))
+		client := testClient(t, server.URL, nil, nil)
+		_, err := client.GetBalanceData(context.Background())
+		client.Close()
+		server.Close()
+		var contractErr *ContractError
+		if !errors.As(err, &contractErr) {
+			t.Errorf("body %s error = %T %v", body, err, err)
+		}
+	}
+}
+
 func TestCreateServerUsesV1AndWaitNormalizesStringAction(t *testing.T) {
 	create := fixture(t, "create.json")
 	completed := fixture(t, "action-completed.json")
