@@ -4,6 +4,7 @@ import "context"
 
 func Execute(ctx context.Context, args []string, options Options) int {
 	app := newRuntime(options)
+	defer app.close()
 	root := newRootCommand(app)
 	root.SetArgs(args)
 
@@ -12,7 +13,7 @@ func Execute(ctx context.Context, args []string, options Options) int {
 		app.command = canonicalCommand(executed)
 	}
 	if err != nil {
-		cliErr := classifyError(err)
+		cliErr := app.sanitizeError(classifyError(err))
 		_ = writeError(
 			app.errOut,
 			app.outputMode(),

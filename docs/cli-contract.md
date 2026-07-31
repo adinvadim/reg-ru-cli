@@ -18,6 +18,8 @@ The visible command tree is:
 
 ```text
 regru auth login|status|refresh|logout
+regru account add|list|show|use|remove|doctor
+regru capability list|probe
 regru vps list|get|ips|create|start|stop|reboot|delete
 regru s3 bucket list|get|create|configure|delete
 regru s3 credentials list|create|revoke
@@ -42,21 +44,24 @@ implemented. A live unavailable command fails closed with a structured
 | `-f`, `--force` | Satisfy the confirmation requirement for a requested mutation. It never bypasses capability, authentication, identity, drift, timeout, or redaction checks. |
 | `--no-color` | Disable ANSI color. Color is also disabled for non-TTY stderr, `NO_COLOR`, or `TERM=dumb`. |
 | `--timeout DURATION` | Bound one network operation. Default `30s`; must be greater than zero and no more than `5m`. |
+| `--credentials-stdin` | Read one bounded `regru.secret-input/v1` credential envelope from a non-TTY stdin pipe. Values are command-scoped and never persisted or rendered. |
 | `-h`, `--help` | Show command help. |
 | `--version` | Print the binary version to stdout. |
 
 `auth login` additionally has `--login-timeout`, defaulting to 10 minutes and
 bounded to 1–30 minutes.
 
-Future non-secret configuration follows this precedence:
+Account selection follows this precedence:
 
 ```text
-flags > environment > project config > user XDG config > defaults
+--account > REGRU_ACCOUNT > project account > user default > no selection
 ```
 
-The profile/config implementation ticket owns the project and XDG file
-formats. Secrets, cookies, browser storage, CSRF values, and service
-credentials are never accepted as flags.
+User profiles live in the platform user-config directory. A project
+`.regru/config.toml` may only select an existing account alias; it cannot
+define profiles, endpoints, session handles, or credential routing. Secrets,
+cookies, browser storage, CSRF values, and service credentials are never
+accepted as flags, environment variables, or normal config.
 
 ## Streams and output modes
 
@@ -126,6 +131,13 @@ process exit value.
 Fresh browser login requires a TTY on stdin and fails before acquiring a
 browser or adapter when `--no-input` is set or stdin is not a TTY. Normal
 noninteractive commands never launch a browser implicitly.
+
+When `--credentials-stdin` is selected, stdin is a credential channel and is
+never reused for a prompt. A mutating command therefore requires `--force`
+before the channel is read. Help, completion, dry-run, invalid invocations,
+and unknown profiles do not consume credential input. `auth login` may use the
+headed browser with piped credentials when `--force` is present and
+`--no-input` is absent.
 
 Mutations require a TTY confirmation or `--force`. `--dry-run` occurs before
 confirmation and before the injected executor, so it cannot make a provider,

@@ -34,8 +34,10 @@ func newRootCommand(app *appRuntime) *cobra.Command {
 					maxNetworkTimeout,
 				))
 			}
-			app.resolveAccount()
-			return nil
+			if err := app.loadProfiles(); err != nil {
+				return err
+			}
+			return app.resolveAccount(cmd.Root().PersistentFlags().Changed("account"))
 		},
 	}
 
@@ -72,8 +74,16 @@ func newRootCommand(app *appRuntime) *cobra.Command {
 	flags.BoolVarP(&app.flags.force, "force", "f", false, "skip mutation confirmation")
 	flags.BoolVar(&app.flags.noColor, "no-color", false, "disable ANSI color")
 	flags.DurationVar(&app.flags.timeout, "timeout", defaultTimeout, "network operation timeout")
+	flags.BoolVar(
+		&app.flags.credentialsStdin,
+		"credentials-stdin",
+		false,
+		"read one provider-neutral credential envelope from stdin",
+	)
 
 	root.AddCommand(
+		newAccountCommand(app),
+		newCapabilityCommand(app),
 		newAuthCommand(app),
 		newVPSCommand(app),
 		newS3Command(app),

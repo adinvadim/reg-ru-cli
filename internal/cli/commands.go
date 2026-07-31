@@ -25,13 +25,13 @@ func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
 		Short: spec.short,
 		Args:  spec.args,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app.resolveAccount()
 			if err := app.requireAccount(); err != nil {
 				return err
 			}
 			if spec.interactive &&
 				!app.flags.dryRun &&
-				(app.flags.noInput || !app.inputIsTTY()) {
+				(app.flags.noInput ||
+					(!app.inputIsTTY() && !app.flags.credentialsStdin)) {
 				return InteractiveRequired(spec.action)
 			}
 

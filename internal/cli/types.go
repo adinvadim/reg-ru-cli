@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/adinvadim/reg-ru-cli/internal/profile"
 	"golang.org/x/term"
 )
 
@@ -19,6 +20,7 @@ type Options struct {
 	OutputIsTTY func() bool
 	ErrorIsTTY  func() bool
 	Executor    Executor
+	Profiles    profile.Repository
 }
 
 func DefaultOptions() Options {
@@ -37,14 +39,22 @@ func DefaultOptions() Options {
 			return term.IsTerminal(int(os.Stderr.Fd()))
 		},
 		Executor: UnavailableExecutor{},
+		Profiles: profile.NewDefaultRepository(),
 	}
 }
 
 type Operation struct {
-	Capability string
-	Action     string
-	Account    string
-	Arguments  []string
+	Capability  string
+	Action      string
+	ProfileID   string
+	Account     string
+	Arguments   []string
+	Credentials CredentialResolver
+}
+
+type CredentialResolver interface {
+	Resolve(string) ([]byte, bool)
+	Keys() []string
 }
 
 type Result struct {

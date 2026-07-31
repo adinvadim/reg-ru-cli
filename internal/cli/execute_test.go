@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/adinvadim/reg-ru-cli/internal/profile"
 )
 
 type executorFunc func(context.Context, Operation) (Result, error)
@@ -30,6 +32,28 @@ func runCLI(
 	inputTTY bool,
 	env map[string]string,
 	executor Executor,
+) testRun {
+	return runCLIWithProfiles(
+		t,
+		ctx,
+		args,
+		input,
+		inputTTY,
+		env,
+		executor,
+		testProfiles(),
+	)
+}
+
+func runCLIWithProfiles(
+	t *testing.T,
+	ctx context.Context,
+	args []string,
+	input string,
+	inputTTY bool,
+	env map[string]string,
+	executor Executor,
+	profiles profile.Repository,
 ) testRun {
 	t.Helper()
 
@@ -56,6 +80,7 @@ func runCLI(
 		OutputIsTTY: func() bool { return false },
 		ErrorIsTTY:  func() bool { return false },
 		Executor:    executor,
+		Profiles:    profiles,
 	})
 
 	return testRun{
@@ -63,6 +88,26 @@ func runCLI(
 		stdout:   stdout.String(),
 		stderr:   stderr.String(),
 	}
+}
+
+func testProfiles() profile.Repository {
+	accounts := map[string]profile.Account{}
+	for index, name := range []string{
+		"personal",
+		"work",
+		"from-env",
+		"from-flag",
+	} {
+		idCharacter := string(rune('a' + index))
+		accounts[name] = profile.Account{
+			ID:       "p_" + strings.Repeat(idCharacter, 26),
+			Provider: "reg.ru",
+		}
+	}
+	return profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts:      accounts,
+	})
 }
 
 func TestRootHelpAndVersion(t *testing.T) {
@@ -307,6 +352,238 @@ func TestAccountSelectionIsDeterministic(t *testing.T) {
 			t.Errorf("stderr does not contain %q: %s", CodeAccountRequired, run.stderr)
 		}
 	})
+}
+
+func TestAccountCommandsManageOnlyNonSecretProfileMetadata(t *testing.T) {
+	profiles := profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts:      map[string]profile.Account{},
+	})
+
+	added := runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--json", "account", "add", "work", "--label", "Work"},
+		"",
+		false,
+		nil,
+		nil,
+		profiles,
+	)
+	if added.exitCode != ExitOK {
+		t.Fatalf("add exit code = %d; stderr=%q", added.exitCode, added.stderr)
+	}
+	for _, forbidden := range []string{"password", "secret", "session_ref", "_ref"} {
+		if strings.Contains(strings.ToLower(added.stdout), forbidden) {
+			t.Errorf("add output contains %q: %s", forbidden, added.stdout)
+		}
+	}
+
+	selected := runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--plain", "account", "use", "work"},
+		"",
+		false,
+		nil,
+		nil,
+		profiles,
+	)
+	if selected.exitCode != ExitOK || selected.stdout != "work\tdefault\n" {
+		t.Fatalf("use result = %+v", selected)
+	}
+
+	shown := runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--json", "account", "show"},
+		"",
+		false,
+		nil,
+		nil,
+		profiles,
+	)
+	if shown.exitCode != ExitOK {
+		t.Fatalf("show exit code = %d; stderr=%q", shown.exitCode, shown.stderr)
+	}
+	if !strings.Contains(shown.stdout, `"account":"work"`) ||
+		!strings.Contains(shown.stdout, `"provider":"reg.ru"`) {
+		t.Errorf("unexpected show output: %s", shown.stdout)
+	}
+}
+
+func TestCredentialEnvelopeIsCommandScopedAndCannotReachOutput(t *testing.T) {
+	const sentinel = "synthetic-secret-never-render"
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		if operation.Credentials == nil {
+			t.Fatal("executor did not receive credential resolver")
+		}
+		value, ok := operation.Credentials.Resolve("regapi.password")
+		if !ok || string(value) != sentinel {
+			t.Fatal("executor did not resolve expected synthetic credential")
+		}
+		return Result{
+			Human: "provider returned " + string(value),
+			Plain: []string{string(value)},
+			Data:  map[string]string{"value": string(value)},
+		}, nil
+	})
+	input := `{"schemaVersion":"regru.secret-input/v1","fields":{"regapi.username":"synthetic-user","regapi.password":"` +
+		sentinel + `"}}`
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--credentials-stdin",
+			"--account", "personal",
+			"auth", "status",
+		},
+		input,
+		false,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitGeneral {
+		t.Fatalf("exit code = %d, want %d; stderr=%q", run.exitCode, ExitGeneral, run.stderr)
+	}
+	if run.stdout != "" {
+		t.Errorf("stdout = %q, want empty", run.stdout)
+	}
+	if strings.Contains(run.stderr, sentinel) {
+		t.Errorf("stderr leaked credential: %q", run.stderr)
+	}
+	if !strings.Contains(run.stderr, CodeSensitiveOutput) {
+		t.Errorf("stderr does not contain %q: %s", CodeSensitiveOutput, run.stderr)
+	}
+}
+
+func TestCredentialStdinMutationRequiresForceBeforeReading(t *testing.T) {
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--credentials-stdin",
+			"--account", "personal",
+			"auth", "logout",
+		},
+		"not valid secret input",
+		false,
+		nil,
+		nil,
+	)
+	if run.exitCode != ExitInteractionRequired {
+		t.Fatalf("exit code = %d, want %d; stderr=%q", run.exitCode, ExitInteractionRequired, run.stderr)
+	}
+	if !strings.Contains(run.stderr, CodeConfirmationRequired) {
+		t.Errorf("credentials were read before confirmation: %s", run.stderr)
+	}
+}
+
+func TestCredentialMaterialInAdapterErrorIsBlocked(t *testing.T) {
+	const sentinel = "synthetic-error-secret"
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		value, ok := operation.Credentials.Resolve("cloudvps.token")
+		if !ok {
+			t.Fatal("executor did not receive credential")
+		}
+		return Result{}, &CLIError{
+			Code:     CodeNetwork,
+			Message:  "provider rejected request",
+			ExitCode: ExitNetwork,
+			Details: map[string]any{
+				"response": map[string]any{"echo": string(value)},
+			},
+		}
+	})
+	input := `{"schemaVersion":"regru.secret-input/v1","fields":{"cloudvps.token":"` +
+		sentinel + `"}}`
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--credentials-stdin",
+			"--account", "personal",
+			"vps", "list",
+		},
+		input,
+		false,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitGeneral {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if strings.Contains(run.stderr, sentinel) ||
+		!strings.Contains(run.stderr, CodeSensitiveOutput) {
+		t.Errorf("adapter error was not safely blocked: %q", run.stderr)
+	}
+}
+
+func TestCredentialStdinDryRunDoesNotConsumeInput(t *testing.T) {
+	run := runCLI(
+		t,
+		nil,
+		[]string{
+			"--credentials-stdin",
+			"--account", "personal",
+			"--dry-run",
+			"auth", "logout",
+		},
+		"deliberately invalid and unread credential input",
+		false,
+		nil,
+		nil,
+	)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if !strings.Contains(run.stdout, "Would run auth.logout") {
+		t.Errorf("unexpected dry-run output: %q", run.stdout)
+	}
+}
+
+func TestSelectionPrecedenceIncludesProjectAndUserDefaults(t *testing.T) {
+	profiles := profile.NewMemoryRepository(profile.Config{
+		SchemaVersion:  profile.SchemaVersion,
+		DefaultAccount: "personal",
+		ProjectAccount: "work",
+		Accounts: map[string]profile.Account{
+			"personal": {ID: "p_" + strings.Repeat("a", 26), Provider: "reg.ru"},
+			"work":     {ID: "p_" + strings.Repeat("b", 26), Provider: "reg.ru"},
+		},
+	})
+	var selected string
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		selected = operation.Account
+		return Result{Human: "ok"}, nil
+	})
+	run := runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"auth", "status"},
+		"",
+		false,
+		nil,
+		executor,
+		profiles,
+	)
+	if run.exitCode != ExitOK || selected != "work" {
+		t.Fatalf("project selection = %q, run=%+v", selected, run)
+	}
+
+	run = runCLIWithProfiles(
+		t,
+		nil,
+		[]string{"--account=", "auth", "status"},
+		"",
+		false,
+		nil,
+		executor,
+		profiles,
+	)
+	if run.exitCode != ExitUsage {
+		t.Fatalf("explicit empty account exit = %d; stderr=%q", run.exitCode, run.stderr)
+	}
 }
 
 func TestInteractiveAuthenticationContract(t *testing.T) {

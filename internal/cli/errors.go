@@ -27,6 +27,9 @@ const (
 	CodeInvalidUsage         = "invalid_usage"
 	CodeConfiguration        = "configuration_error"
 	CodeAccountRequired      = "account_required"
+	CodeAccountNotFound      = "account_not_found"
+	CodeSecretInput          = "invalid_secret_input"
+	CodeSensitiveOutput      = "sensitive_output_blocked"
 	CodeInteractiveRequired  = "interactive_required"
 	CodeConfirmationRequired = "confirmation_required"
 	CodeConfirmationDeclined = "confirmation_declined"
@@ -83,6 +86,32 @@ func AccountRequired() *CLIError {
 		CodeAccountRequired,
 		"an account profile is required; pass --account or set REGRU_ACCOUNT",
 		ExitConfiguration,
+		nil,
+	)
+}
+
+func AccountNotFound(account string) *CLIError {
+	return newCLIError(
+		CodeAccountNotFound,
+		"the selected account profile does not exist",
+		ExitConfiguration,
+		map[string]any{"account": account},
+	)
+}
+
+func ConfigurationError(message string) *CLIError {
+	return newCLIError(CodeConfiguration, message, ExitConfiguration, nil)
+}
+
+func SecretInputError(message string) *CLIError {
+	return newCLIError(CodeSecretInput, message, ExitConfiguration, nil)
+}
+
+func SensitiveOutputBlocked() *CLIError {
+	return newCLIError(
+		CodeSensitiveOutput,
+		"command output was blocked because it contained credential material",
+		ExitGeneral,
 		nil,
 	)
 }
@@ -151,11 +180,12 @@ func AuthenticationExpired() *CLIError {
 }
 
 func AccountMismatch(expected, actual string) *CLIError {
+	_ = actual
 	return newCLIError(
 		CodeAccountMismatch,
 		"the authenticated REG.RU principal does not match the selected account profile",
 		ExitAuthentication,
-		map[string]any{"expected_account": expected, "actual_account": actual},
+		map[string]any{"selected_account": expected, "identity_match": false},
 	)
 }
 
