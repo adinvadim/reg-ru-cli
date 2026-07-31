@@ -28,6 +28,12 @@ provider = "reg.ru"
 [accounts.work.credentials]
 regapi_ref = "opaque-reference"
 
+[accounts.work.cloud]
+environment_id = "opaque-environment"
+s3_endpoint = "https://s3.regru.cloud"
+s3_signing_region = "us-east-1"
+s3_key_pair_id = "42"
+
 [accounts.work.credential_process]
 command = ["/usr/local/bin/credential-helper", "get", "work"]
 `)
@@ -45,6 +51,12 @@ account = "work"
 	}
 	if config.Accounts["work"].Credentials.REGAPIRef != "opaque-reference" {
 		t.Error("project selection replaced user-owned account metadata")
+	}
+	cloud := config.Accounts["work"].Cloud
+	if cloud.EnvironmentID != "opaque-environment" ||
+		cloud.S3Endpoint != "https://s3.regru.cloud" ||
+		cloud.S3SigningRegion != "us-east-1" || cloud.S3KeyPairID != "42" {
+		t.Errorf("S3 routing metadata = %#v", cloud)
 	}
 	command := config.Accounts["work"].CredentialProcess.Command
 	if len(command) != 3 || command[0] != "/usr/local/bin/credential-helper" {

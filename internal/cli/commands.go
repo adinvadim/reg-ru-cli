@@ -797,26 +797,6 @@ func operationParameters(values ...any) map[string][]string {
 	return parameters
 }
 
-func newS3Command(app *appRuntime) *cobra.Command {
-	buckets := newGroupCommand(
-		"bucket",
-		"Manage S3 bucket lifecycle and provider configuration",
-		newOperationCommand(app, readSpec("list", "List S3 buckets", "s3.bucket", "s3.bucket.list", cobra.NoArgs)),
-		newOperationCommand(app, readSpec("get <name>", "Show an S3 bucket", "s3.bucket", "s3.bucket.get", cobra.ExactArgs(1))),
-		newOperationCommand(app, mutationSpec("create <name>", "Create an S3 bucket", "s3.control_plane", "s3.bucket.create", cobra.ExactArgs(1))),
-		newOperationCommand(app, mutationSpec("configure <name>", "Configure an S3 bucket", "s3.control_plane", "s3.bucket.configure", cobra.ExactArgs(1))),
-		newOperationCommand(app, mutationSpec("delete <name>", "Delete an S3 bucket", "s3.bucket", "s3.bucket.delete", cobra.ExactArgs(1))),
-	)
-	credentials := newGroupCommand(
-		"credentials",
-		"Manage S3 access-key lifecycle",
-		newOperationCommand(app, readSpec("list", "List S3 credential references", "s3.credentials", "s3.credentials.list", cobra.NoArgs)),
-		newOperationCommand(app, mutationSpec("create", "Create S3 credentials", "s3.credentials", "s3.credentials.create", cobra.NoArgs)),
-		newOperationCommand(app, mutationSpec("revoke <id>", "Revoke S3 credentials", "s3.credentials", "s3.credentials.revoke", cobra.ExactArgs(1))),
-	)
-	return newGroupCommand("s3", "Manage REG.RU S3 buckets and configuration", buckets, credentials)
-}
-
 func newBillingCommand(app *appRuntime) *cobra.Command {
 	return newGroupCommand(
 		"billing",

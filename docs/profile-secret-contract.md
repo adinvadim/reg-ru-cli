@@ -72,6 +72,12 @@ provider = "reg.ru"
 [accounts.personal.portal]
 session_ref = "s_bbbbbbbbbbbbbbbbbbbbbbbbbb"
 
+[accounts.personal.cloud]
+environment_id = "opaque-cloud-service-id"
+s3_endpoint = "https://s3.regru.cloud"
+s3_signing_region = "us-east-1"
+s3_key_pair_id = "42"
+
 [accounts.personal.credential_process]
 command = ["/usr/local/bin/credential-helper", "get", "personal"]
 ```
@@ -97,6 +103,12 @@ account = "work"
 
 It can select an existing alias only. A checked-out project cannot redirect
 authenticated endpoints or replace credential, helper, or session routing.
+
+The optional `cloud` fields are private routing metadata, not credentials.
+`environment_id` selects one REG.Cloud environment when the cabinet has more
+than one. `s3_key_pair_id` selects one provider key set when several exist.
+`s3_endpoint` and `s3_signing_region` are user-only compatibility overrides;
+they cannot be supplied by a project checkout or normal command flags.
 
 ## Selection and commands
 

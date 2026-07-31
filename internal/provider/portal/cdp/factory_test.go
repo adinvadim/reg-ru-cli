@@ -141,3 +141,22 @@ func TestPageExecutorKeepsCredentialsInsideSyntheticBFFAndGraphQLFixture(t *test
 		}
 	}
 }
+
+func TestS3PortalProgramsKeepSecretsOutOfInventoryAndMutationResults(t *testing.T) {
+	programs := productionPrograms()
+	for _, id := range []session.ProgramID{programS3Inventory, programS3Mutation} {
+		selected, exists := programs[id]
+		if !exists {
+			t.Fatalf("program %q is not registered", id)
+		}
+		for _, forbidden := range []string{"accessKey", "secretKey"} {
+			if strings.Contains(selected.source, forbidden) {
+				t.Errorf("program %q selects secret field %q", id, forbidden)
+			}
+		}
+	}
+	credentials, exists := programs[programS3Credentials]
+	if !exists || !strings.Contains(credentials.source, "secretKey") {
+		t.Fatal("credential program does not own the narrow secret-bearing path")
+	}
+}

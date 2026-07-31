@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	programAuthProbe session.ProgramID = "portal.auth.probe"
-	programLogout    session.ProgramID = "portal.auth.logout"
+	programAuthProbe     session.ProgramID = "portal.auth.probe"
+	programLogout        session.ProgramID = "portal.auth.logout"
+	programS3Inventory   session.ProgramID = "portal.s3.inventory"
+	programS3Mutation    session.ProgramID = "portal.s3.mutation"
+	programS3Credentials session.ProgramID = "portal.s3.credentials"
 )
 
 var firstPartyOrigins = []string{
@@ -31,6 +34,21 @@ func productionPrograms() map[session.ProgramID]program {
 		programLogout: {
 			source:         logoutProgram,
 			maxResultBytes: 1024,
+			allowedOrigins: firstPartyOrigins,
+		},
+		programS3Inventory: {
+			source:         s3InventoryProgram,
+			maxResultBytes: 64 << 10,
+			allowedOrigins: firstPartyOrigins,
+		},
+		programS3Mutation: {
+			source:         s3MutationProgram,
+			maxResultBytes: 64 << 10,
+			allowedOrigins: firstPartyOrigins,
+		},
+		programS3Credentials: {
+			source:         s3CredentialsProgram,
+			maxResultBytes: 8 << 10,
 			allowedOrigins: firstPartyOrigins,
 		},
 	}

@@ -28,7 +28,11 @@ regru vps snapshot list|create|remove
 regru vps backup enable|disable|restore
 regru vps plan list|show
 regru vps image list|show
-regru s3 bucket list|get|create|configure|delete
+regru s3 service show
+regru s3 service quota set
+regru s3 bucket list|show|create|update|delete
+regru s3 bucket policy|cors|lifecycle|website get|set|delete
+regru s3 bucket versioning get|set
 regru s3 credentials list|create|revoke
 regru billing balance|invoices|invoice|checkout
 regru support ticket list|get|create|reply|attach|close|reopen
@@ -62,6 +66,8 @@ CloudVPS commands use `--timeout` for each credential or HTTP request and
 to 10 minutes and is bounded to 1 second–24 hours. Mutations wait by default;
 `vps --no-wait ...` returns the accepted action without polling. See the
 [CloudVPS command guide](cloudvps.md).
+REG.RU S3 commands use separate private-control-plane and signed-protocol
+adapters; see the [S3 command guide](s3.md).
 
 Account selection follows this precedence:
 

@@ -47,7 +47,10 @@ type Portal struct {
 }
 
 type Cloud struct {
-	EnvironmentID string `toml:"environment_id,omitempty" json:"-"`
+	EnvironmentID   string `toml:"environment_id,omitempty" json:"-"`
+	S3Endpoint      string `toml:"s3_endpoint,omitempty" json:"-"`
+	S3SigningRegion string `toml:"s3_signing_region,omitempty" json:"-"`
+	S3KeyPairID     string `toml:"s3_key_pair_id,omitempty" json:"-"`
 }
 
 type Credentials struct {
@@ -305,6 +308,9 @@ func validateAccount(account Account) error {
 	for name, value := range map[string]string{
 		"portal session reference": account.Portal.SessionRef,
 		"cloud environment ID":     account.Cloud.EnvironmentID,
+		"S3 endpoint":              account.Cloud.S3Endpoint,
+		"S3 signing region":        account.Cloud.S3SigningRegion,
+		"S3 key-pair ID":           account.Cloud.S3KeyPairID,
 		"CloudVPS reference":       account.Credentials.CloudVPSRef,
 		"REG.API reference":        account.Credentials.REGAPIRef,
 		"S3 reference":             account.Credentials.S3Ref,
