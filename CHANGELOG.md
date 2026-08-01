@@ -10,3 +10,4 @@
 - Add source-discriminated REG.API and CloudVPS billing reads, invoice status and mutations, exact-decimal finance models, and fail-closed private checkout gates.
 - Add value-redacted portal invoice enrichment and a confirmed, non-shareable visible-browser checkout handoff while keeping unavailable bill-specific method enumeration gated.
 - Add a typed experimental support command boundary with deferred message input, redacted dry runs, and precise fail-closed reasons for every uncaptured private ticket capability.
+- Add install, configuration, architecture, and capability documentation plus reproducible local checks, secret-scanning CI, cross-platform builds, and changelog-backed GitHub releases.

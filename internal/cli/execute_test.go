@@ -119,7 +119,17 @@ func TestRootHelpAndVersion(t *testing.T) {
 		if run.exitCode != ExitOK {
 			t.Fatalf("exit code = %d, want %d; stderr=%q", run.exitCode, ExitOK, run.stderr)
 		}
-		for _, expected := range []string{"Usage:", "regru", "auth", "vps", "s3", "billing", "support"} {
+		for _, expected := range []string{
+			"Usage:",
+			"regru",
+			"auth",
+			"vps",
+			"s3",
+			"billing",
+			"support",
+			"Commands remain visible when a provider capability is unavailable",
+			"regru capability probe",
+		} {
 			if !strings.Contains(run.stdout, expected) {
 				t.Errorf("stdout does not contain %q:\n%s", expected, run.stdout)
 			}

@@ -12,7 +12,8 @@ func newRootCommand(app *appRuntime) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "regru",
 		Short: "Manage REG.RU infrastructure and accounts safely",
-		Long:  "regru is a human-friendly and agent-safe CLI for REG.RU CloudVPS, S3, billing, authentication, and support workflows.",
+		Long: "regru is a human-friendly and agent-safe CLI for REG.RU CloudVPS, S3, billing, authentication, and support workflows.\n\n" +
+			"Commands remain visible when a provider capability is unavailable. Use 'regru capability list' for configured state and 'regru capability probe' for bounded provider verification.",
 		Example: `  regru --account personal auth status --json
   regru --account personal --dry-run vps delete vps-id
   regru completion zsh`,
