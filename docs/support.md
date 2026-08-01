@@ -1,51 +1,42 @@
 # Experimental support adapter
 
-The support command tree is deliberately visible, but every operation currently
-fails closed before reading private input, opening the managed browser profile,
-or making a provider request. REG.RU exposes a human support workflow and a
-private web implementation, not a published support API contract.
+The support command tree uses an experimental, browser-session-bound adapter.
+REG.RU exposes a human support workflow and a private web implementation, not a
+published support API contract, so every operation is guarded by build, route,
+principal, operation, and response probes.
 
-As of 2026-08-01, the current first-party support bundle establishes the public
-form shell and helper routes for service selection, temporary uploads, request
-creation, phone data, alerts, and notification toggling. It does not establish
-the authenticated contracts needed for ticket inventory, conversation history,
-replies, lifecycle status, pagination, or downloads. Capturing those operations
-would require reading real private tickets; capturing a mutation response would
-require sending a real ticket or reply. Neither action was performed merely to
-make the adapter appear complete.
+An authorized value-redacted capture on 2026-08-01 established the rendered
+inventory, numeric display IDs, detail conversations, generic no-service create
+flow, reply form, and two-step close confirmation. Opaque ticket locators remain
+inside the managed browser and are resolved from a numeric display ID for every
+operation.
 
 ## Commands and capability reasons
 
-The commands preserve the intended CLI boundary while returning a structured
-`capability_unavailable` error with exit code 7 and a stable `reason` detail.
+Five commands are enabled. Two remain fail-closed because the captured website
+does not provide the contract implied by their CLI shape.
 
 | Command | Capability | Current reason |
 | --- | --- | --- |
-| `ticket list` | `support.ticket.list` | `authenticated_inventory_contract_uncaptured` |
-| `ticket get` (`ticket show`) | `support.ticket.show` | `authenticated_detail_contract_uncaptured` |
-| `ticket create` | `support.ticket.create` | `authenticated_create_contract_unverified` |
-| `ticket reply` | `support.ticket.reply` | `authenticated_reply_contract_uncaptured` |
+| `ticket list` | `support.ticket.list` | enabled |
+| `ticket get` (`ticket show`) | `support.ticket.show` | enabled |
+| `ticket create` | `support.ticket.create` | enabled |
+| `ticket reply` | `support.ticket.reply` | enabled |
 | `ticket attach` | `support.ticket.attachment` | `attachment_contract_uncaptured` |
-| `ticket close` | `support.ticket.close` | `close_contract_uncaptured` |
+| `ticket close` | `support.ticket.close` | enabled |
 | `ticket reopen` | `support.ticket.reopen` | `reopen_contract_uncaptured` |
 
-The reason is more specific than “not implemented”: it records which private
-contract is missing and confirms that no provider operation was attempted.
-There is no browser-handoff fallback behind a ticket command.
-The aggregate `support.private` capability may still report `configured` when
-an account has a portal session; that reports authentication material only, not
-that any ticket operation has a verified contract.
+`ticket attach` remains unavailable because REG.RU only exposes a temporary
+upload handle inside a create/reply composer; there is no captured standalone
+operation that binds a file to an existing ticket. `ticket reopen` remains
+unavailable because closed-ticket detail exposes no reopen transition.
 
-Because the current contract gate runs before browser access, an expired or
-missing session does not mask the more fundamental capability reason and
-reauthentication cannot enable these operations. Once an operation has a
-captured contract, session loss must return `authentication_expired` and require
-`regru auth login`; it must never fall back to an anonymous request.
+An expired or missing session returns `authentication_expired` and requires
+`regru auth login`; the adapter never falls back to an anonymous request.
 
-`ticket list` reserves and locally validates `--limit` (1–100), one-based
-`--page`, and `--status all|open|closed`. These flags do not imply a guessed
-provider mapping; execution remains unavailable until authenticated capture
-proves one.
+`ticket list` validates `--limit` (1–100), one-based `--page`, and
+`--status all|open|closed`. Filtering and bounded pagination are applied to the
+captured authenticated inventory.
 
 ## Message and attachment input
 
@@ -57,8 +48,8 @@ proves one.
 stdin when neither flag is present
 ```
 
-`--attachment PATH` is repeatable, and `ticket attach <id> <path>` reserves the
-standalone attachment workflow. Prefer `--file` or stdin for sensitive text;
+`--attachment PATH` and `ticket attach <id> <path>` remain fail-closed and do
+not read the file. Prefer `--file` or stdin for sensitive text;
 `--body` is necessarily visible in the process argument list. Message input is
 UTF-8, non-empty, and limited to 256 KiB. It is represented by a deferred
 resolver so an unavailable or drifted adapter never reads the file or stdin.
@@ -74,8 +65,8 @@ action, and positional-argument count.
 
 ## Mutation outcome contract
 
-Once a future captured adapter is enabled, each mutation gets one dispatch
-attempt. A proven pre-dispatch failure is `not-sent`; a recognized success is
+Each enabled mutation gets one dispatch attempt. A proven pre-dispatch failure
+is `not-sent`; a recognized success is
 `committed`; a recognized provider refusal is `rejected`. Timeout, disconnect,
 malformed response, `429`, `5xx`, or any other ambiguous result after possible
 dispatch is `outcome_unknown` and is never retried automatically.
@@ -89,12 +80,12 @@ guards and never provider idempotency.
 Opaque ticket locators, upload handles, download URLs, cookies, CSRF values,
 ticket content, and attachments must remain inside the selected browser/session
 boundary. They are never normal config or log fields.
-The CLI never synthesizes a ticket URL from an opaque locator. Until a captured
-detail contract distinguishes a normal ticket number from an opaque secret,
-`ticket get/show`, reply, close, reopen, attachment, and download all remain
-unavailable.
+The CLI never synthesizes a ticket URL from a numeric ticket ID. It resolves the
+current opaque locator from authenticated inventory inside the browser for each
+detail, reply, or close operation.
 
 The evidence and risk analysis live in
+[the authorized value-redacted capture](research/support-authorized-capture.md),
 [the support capability report](research/support-portal-capability.md),
 [the accepted boundary](research/support-boundary-contract-refresh.md), and
 [the failure analysis](research/support-boundary-failure-risk.md).

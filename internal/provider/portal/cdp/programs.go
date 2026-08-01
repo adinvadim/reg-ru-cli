@@ -27,6 +27,25 @@ type pageExecutor struct {
 
 var errPageTransition = errors.New("page transition interrupted browser program")
 
+func (e *pageExecutor) Navigate(ctx context.Context, target string) error {
+	if e == nil || e.browser == nil {
+		return errors.New("page executor is unavailable")
+	}
+	parsed, err := url.Parse(target)
+	if err != nil || !originAllowed(parsed.Scheme+"://"+parsed.Host, firstPartyOrigins) {
+		return errors.New("page navigation target is not allowlisted")
+	}
+	callCtx, cancel := e.browser.callContext(ctx)
+	defer cancel()
+	if err := chromedp.Run(callCtx, chromedp.Navigate(target), chromedp.WaitReady("body", chromedp.ByQuery)); err != nil {
+		if callCtx.Err() != nil {
+			return callCtx.Err()
+		}
+		return errors.New("page navigation failed")
+	}
+	return nil
+}
+
 func (e *pageExecutor) RunJSON(
 	ctx context.Context,
 	id session.ProgramID,

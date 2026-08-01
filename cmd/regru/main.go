@@ -54,7 +54,10 @@ func productionOptions() cli.Options {
 	options.Executor = regs3.NewExecutor(options.Profiles, regs3.ExecutorOptions{
 		ControlPlane: regs3.NewPortalControlPlane(broker),
 	}, options.Executor)
-	options.Executor = support.NewExecutor(options.Executor)
+	options.Executor = support.NewExecutorWithOptions(support.ExecutorOptions{
+		Profiles: options.Profiles,
+		Portal:   support.NewPortal(broker),
+	}, options.Executor)
 	options.Executor = authcli.New(options.Profiles, broker, options.Executor)
 	options.Executor = capability.NewExecutor(options.Profiles, options.Executor)
 	return options

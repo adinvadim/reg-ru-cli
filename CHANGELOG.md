@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Enable experimental browser-backed support ticket list, detail, create, reply, and close operations with typed drift probes and one-attempt mutation reconciliation.
 - Preserve REG.Cloud S3 service and bucket sizes as provider-supplied strings in inventory output.
 - Keep interactive portal login alive when REG.RU navigates the staged browser during authentication.
 - Scaffold the `regru` Go CLI with stable output, error, safety, authentication, timeout, completion, and capability-placeholder contracts.

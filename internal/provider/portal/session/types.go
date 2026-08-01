@@ -86,6 +86,12 @@ type PageExecutor interface {
 	) error
 }
 
+// PageNavigator is an optional browser capability for adapters whose private
+// contract is rendered only by a top-level first-party page.
+type PageNavigator interface {
+	Navigate(context.Context, string) error
+}
+
 type Browser interface {
 	WaitForAuthentication(context.Context, []byte) (Observation, error)
 	Refresh(context.Context, []byte) (Observation, error)

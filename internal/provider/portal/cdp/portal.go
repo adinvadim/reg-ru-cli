@@ -18,6 +18,8 @@ const (
 	programS3Credentials   session.ProgramID = "portal.s3.credentials"
 	programBillingHistory  session.ProgramID = "portal.billing.history"
 	programBillingCheckout session.ProgramID = "portal.billing.checkout"
+	programSupportRead     session.ProgramID = "portal.support.read"
+	programSupportMutation session.ProgramID = "portal.support.mutation"
 )
 
 var firstPartyOrigins = []string{
@@ -61,6 +63,16 @@ func productionPrograms() map[session.ProgramID]program {
 		programBillingCheckout: {
 			source:         billingCheckoutProgram,
 			maxResultBytes: 1024,
+			allowedOrigins: firstPartyOrigins,
+		},
+		programSupportRead: {
+			source:         supportReadProgram,
+			maxResultBytes: 256 << 10,
+			allowedOrigins: firstPartyOrigins,
+		},
+		programSupportMutation: {
+			source:         supportMutationProgram,
+			maxResultBytes: 8 << 10,
 			allowedOrigins: firstPartyOrigins,
 		},
 	}

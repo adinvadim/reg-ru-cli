@@ -7,7 +7,7 @@ keeps stable `--json` and `--plain` modes for scripts and agents.
 
 The CLI is intentionally conservative. Mutations support `--dry-run` and
 require terminal confirmation or `--force`; private provider contracts are
-probed and fail closed instead of guessing or scraping rendered pages.
+typed, probed, and fail closed instead of guessing through contract drift.
 
 ## Capability status
 
@@ -18,7 +18,7 @@ probed and fail closed instead of guessing or scraping rendered pages.
 | CloudVPS | Documented v1/v2 APIs | Inventory, lifecycle, IP, key, snapshot, backup, plan, and image commands are implemented |
 | S3 | REG.Cloud control plane plus signed S3 protocol | Bucket and configuration lifecycle is implemented; object transfer is out of scope |
 | Billing | REG.API 2, CloudVPS, and a gated portal adapter | Documented reads/mutations are implemented; checkout is a visible-browser handoff, not a payment URL |
-| Support | Experimental private adapter | Commands are visible but currently fail closed with an operation-specific uncaptured-contract reason |
+| Support | Experimental private adapter | List, detail, create, reply, and close are enabled; standalone attachment and reopen remain fail-closed |
 
 Run `regru capability list` for locally configured capability state and
 `regru capability probe` for bounded provider-facing verification. A command

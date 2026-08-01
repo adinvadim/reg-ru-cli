@@ -254,3 +254,29 @@ func TestBillingPortalProgramsKeepCheckoutLocatorInsideBrowserWorld(t *testing.T
 		t.Fatal("checkout program must not navigate the order route")
 	}
 }
+
+func TestSupportPortalProgramsKeepLocatorsPrivateAndReconcileExactlyOnce(t *testing.T) {
+	programs := productionPrograms()
+	read, readExists := programs[programSupportRead]
+	mutation, mutationExists := programs[programSupportMutation]
+	if !readExists || !mutationExists {
+		t.Fatal("support portal programs are not registered")
+	}
+	for _, forbidden := range []string{"document.cookie", "localStorage", "sessionStorage", "outerHTML", "href:"} {
+		if strings.Contains(read.source, forbidden) || strings.Contains(mutation.source, forbidden) {
+			t.Errorf("support program exposes private browser material through %q", forbidden)
+		}
+	}
+	for _, marker := range []string{
+		`location.assign(target.href)`,
+		`tickets.push({id, status:`,
+		`exact === 1 ? {state: "committed"} : {state: "ambiguous"}`,
+		`dispatched ? "ambiguous" : "transport"`,
+		`document.querySelector(".b-support-ticket__state_color_red")`,
+		`document.querySelector(".b-support-ticket__message-customer-closed")`,
+	} {
+		if !strings.Contains(read.source, marker) && !strings.Contains(mutation.source, marker) {
+			t.Errorf("support programs are missing reconciliation marker %q", marker)
+		}
+	}
+}
