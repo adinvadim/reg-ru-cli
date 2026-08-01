@@ -1,0 +1,38 @@
+{
+  "state": "available",
+  "serviceId": "service-redacted",
+  "objectStore": {
+    "id": 7,
+    "name": "store-redacted",
+    "status": "ACTIVE",
+    "isLocked": false,
+    "bucketCount": 1,
+    "bucketLimit": 10,
+    "size": "000123.450",
+    "sizeUnit": "bytes",
+    "maxQuotaGb": 100,
+    "quotaGb": 50,
+    "buckets": [
+      {
+        "name": "bucket-redacted",
+        "size": "001.20",
+        "sizeUnit": "GB",
+        "quotaGb": 10,
+        "objectsCount": 3,
+        "accessType": "private_by_keys",
+        "isVersioningEnabled": true,
+        "pathStyleLink": "https://s3.example.test/bucket-redacted",
+        "virtualHostedStyleLink": "https://bucket-redacted.s3.example.test"
+      }
+    ],
+    "keypairs": [
+      {
+        "id": 9,
+        "name": "key-redacted",
+        "instanceId": "instance-redacted",
+        "server": "https://s3.example.test",
+        "createdAt": "2026-07-31T00:00:00Z"
+      }
+    ]
+  }
+}

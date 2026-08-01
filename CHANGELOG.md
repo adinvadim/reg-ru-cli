@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve REG.Cloud S3 service and bucket sizes as provider-supplied strings in inventory output.
 - Scaffold the `regru` Go CLI with stable output, error, safety, authentication, timeout, completion, and capability-placeholder contracts.
 - Add provider-neutral multi-account profiles, strict user/project TOML boundaries, redacted account and capability commands, and lazy external credential-process helpers.
 - Add isolated browser-backed portal login, refresh, status, logout, principal binding, and typed in-browser BFF/GraphQL execution.

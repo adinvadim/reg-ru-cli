@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,16 +12,32 @@ const (
 	DefaultSigningRegion = "us-east-1"
 )
 
+// ProviderSize preserves the REG.Cloud value without assuming a numeric
+// grammar or unit. Arithmetic requires a separately characterized contract.
+type ProviderSize string
+
+func (s *ProviderSize) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '"' {
+		return errors.New("REG.Cloud S3 size is not a JSON string")
+	}
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*s = ProviderSize(value)
+	return nil
+}
+
 type Bucket struct {
-	Name                   string `json:"name"`
-	Size                   int64  `json:"size,omitempty"`
-	SizeUnit               string `json:"sizeUnit,omitempty"`
-	QuotaGB                *int32 `json:"quotaGb,omitempty"`
-	ObjectsCount           int64  `json:"objectsCount"`
-	AccessType             string `json:"accessType,omitempty"`
-	VersioningEnabled      bool   `json:"isVersioningEnabled"`
-	PathStyleLink          string `json:"pathStyleLink,omitempty"`
-	VirtualHostedStyleLink string `json:"virtualHostedStyleLink,omitempty"`
+	Name                   string       `json:"name"`
+	Size                   ProviderSize `json:"size,omitempty"`
+	SizeUnit               string       `json:"sizeUnit,omitempty"`
+	QuotaGB                *int32       `json:"quotaGb,omitempty"`
+	ObjectsCount           int64        `json:"objectsCount"`
+	AccessType             string       `json:"accessType,omitempty"`
+	VersioningEnabled      bool         `json:"isVersioningEnabled"`
+	PathStyleLink          string       `json:"pathStyleLink,omitempty"`
+	VirtualHostedStyleLink string       `json:"virtualHostedStyleLink,omitempty"`
 }
 
 type KeyPair struct {
@@ -32,19 +49,19 @@ type KeyPair struct {
 }
 
 type ObjectStore struct {
-	ServiceID   string    `json:"-"`
-	ID          int64     `json:"id"`
-	Name        string    `json:"name,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	Locked      bool      `json:"locked"`
-	BucketCount int       `json:"bucketCount"`
-	BucketLimit int       `json:"bucketLimit"`
-	Size        int64     `json:"size,omitempty"`
-	SizeUnit    string    `json:"sizeUnit,omitempty"`
-	MaxQuotaGB  int32     `json:"maxQuotaGb,omitempty"`
-	QuotaGB     int32     `json:"quotaGb,omitempty"`
-	Buckets     []Bucket  `json:"buckets"`
-	KeyPairs    []KeyPair `json:"keyPairs"`
+	ServiceID   string       `json:"-"`
+	ID          int64        `json:"id"`
+	Name        string       `json:"name,omitempty"`
+	Status      string       `json:"status,omitempty"`
+	Locked      bool         `json:"locked"`
+	BucketCount int          `json:"bucketCount"`
+	BucketLimit int          `json:"bucketLimit"`
+	Size        ProviderSize `json:"size,omitempty"`
+	SizeUnit    string       `json:"sizeUnit,omitempty"`
+	MaxQuotaGB  int32        `json:"maxQuotaGb,omitempty"`
+	QuotaGB     int32        `json:"quotaGb,omitempty"`
+	Buckets     []Bucket     `json:"buckets"`
+	KeyPairs    []KeyPair    `json:"keyPairs"`
 }
 
 func (s ObjectStore) Bucket(name string) (Bucket, bool) {

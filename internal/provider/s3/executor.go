@@ -842,8 +842,8 @@ func reconciledWarning() cli.Warning {
 
 func renderService(store ObjectStore) cli.Result {
 	return cli.Result{
-		Human:    fmt.Sprintf("S3 service: %s, %d/%d buckets, quota %d GB", store.Status, store.BucketCount, store.BucketLimit, store.QuotaGB),
-		Plain:    []string{fmt.Sprintf("%s\t%t\t%d\t%d\t%d", plain(store.Status), store.Locked, store.QuotaGB, store.BucketCount, store.BucketLimit)},
+		Human:    fmt.Sprintf("S3 service: %s, %d/%d buckets, size %s, quota %d GB", store.Status, store.BucketCount, store.BucketLimit, providerSizeText(store.Size, store.SizeUnit), store.QuotaGB),
+		Plain:    []string{fmt.Sprintf("%s\t%t\t%d\t%d\t%d\t%s\t%s", plain(store.Status), store.Locked, store.QuotaGB, store.BucketCount, store.BucketLimit, plain(string(store.Size)), plain(store.SizeUnit))},
 		Data:     store,
 		Warnings: privatePortalWarnings(),
 	}
@@ -851,25 +851,35 @@ func renderService(store ObjectStore) cli.Result {
 
 func renderBuckets(buckets []Bucket) cli.Result {
 	lines := make([]string, 0, len(buckets))
+	human := make([]string, 0, len(buckets)+1)
+	human = append(human, fmt.Sprintf("%d S3 buckets", len(buckets)))
 	for _, bucket := range buckets {
 		quota := int32(0)
 		if bucket.QuotaGB != nil {
 			quota = *bucket.QuotaGB
 		}
-		lines = append(lines, fmt.Sprintf("%s\t%s\t%d\t%d", plain(bucket.Name), plain(bucket.AccessType), quota, bucket.ObjectsCount))
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%d\t%d\t%s\t%s", plain(bucket.Name), plain(bucket.AccessType), quota, bucket.ObjectsCount, plain(string(bucket.Size)), plain(bucket.SizeUnit)))
+		human = append(human, fmt.Sprintf("%s: %s, %d objects, size %s", bucket.Name, bucket.AccessType, bucket.ObjectsCount, providerSizeText(bucket.Size, bucket.SizeUnit)))
 	}
 	return cli.Result{
-		Human: fmt.Sprintf("%d S3 buckets", len(buckets)), Plain: lines, Data: buckets,
+		Human: strings.Join(human, "\n"), Plain: lines, Data: buckets,
 		Warnings: privatePortalWarnings(),
 	}
 }
 
 func renderBucket(bucket Bucket) cli.Result {
 	return cli.Result{
-		Human: fmt.Sprintf("S3 bucket %s: %s, %d objects", bucket.Name, bucket.AccessType, bucket.ObjectsCount),
-		Plain: []string{fmt.Sprintf("%s\t%s\t%d", plain(bucket.Name), plain(bucket.AccessType), bucket.ObjectsCount)},
+		Human: fmt.Sprintf("S3 bucket %s: %s, %d objects, size %s", bucket.Name, bucket.AccessType, bucket.ObjectsCount, providerSizeText(bucket.Size, bucket.SizeUnit)),
+		Plain: []string{fmt.Sprintf("%s\t%s\t%d\t%s\t%s", plain(bucket.Name), plain(bucket.AccessType), bucket.ObjectsCount, plain(string(bucket.Size)), plain(bucket.SizeUnit))},
 		Data:  bucket, Warnings: privatePortalWarnings(),
 	}
+}
+
+func providerSizeText(size ProviderSize, unit string) string {
+	if unit == "" {
+		return string(size)
+	}
+	return fmt.Sprintf("%s %s", size, unit)
 }
 
 func renderBucketChange(action string, before, after *Bucket) cli.Result {

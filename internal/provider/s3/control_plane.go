@@ -64,18 +64,28 @@ func (c *PortalControlPlane) Inventory(
 		return ObjectStore{}, &PortalError{Kind: PortalContract}
 	}
 	var raw struct {
-		ID          int64    `json:"id"`
-		Name        string   `json:"name"`
-		Status      string   `json:"status"`
-		Locked      bool     `json:"isLocked"`
-		BucketCount int      `json:"bucketCount"`
-		BucketLimit int      `json:"bucketLimit"`
-		Size        int64    `json:"size"`
-		SizeUnit    string   `json:"sizeUnit"`
-		MaxQuotaGB  int32    `json:"maxQuotaGb"`
-		QuotaGB     int32    `json:"quotaGb"`
-		Buckets     []Bucket `json:"buckets"`
-		KeyPairs    []struct {
+		ID          int64         `json:"id"`
+		Name        string        `json:"name"`
+		Status      string        `json:"status"`
+		Locked      bool          `json:"isLocked"`
+		BucketCount int           `json:"bucketCount"`
+		BucketLimit int           `json:"bucketLimit"`
+		Size        *ProviderSize `json:"size"`
+		SizeUnit    string        `json:"sizeUnit"`
+		MaxQuotaGB  int32         `json:"maxQuotaGb"`
+		QuotaGB     int32         `json:"quotaGb"`
+		Buckets     []struct {
+			Name                   string        `json:"name"`
+			Size                   *ProviderSize `json:"size"`
+			SizeUnit               string        `json:"sizeUnit"`
+			QuotaGB                *int32        `json:"quotaGb"`
+			ObjectsCount           int64         `json:"objectsCount"`
+			AccessType             string        `json:"accessType"`
+			VersioningEnabled      bool          `json:"isVersioningEnabled"`
+			PathStyleLink          string        `json:"pathStyleLink"`
+			VirtualHostedStyleLink string        `json:"virtualHostedStyleLink"`
+		} `json:"buckets"`
+		KeyPairs []struct {
 			ID         int64  `json:"id"`
 			Name       string `json:"name"`
 			InstanceID string `json:"instanceId"`
@@ -83,18 +93,33 @@ func (c *PortalControlPlane) Inventory(
 			CreatedAt  string `json:"createdAt"`
 		} `json:"keypairs"`
 	}
-	if err := json.Unmarshal(envelope.ObjectStore, &raw); err != nil || raw.ID == 0 {
+	if err := json.Unmarshal(envelope.ObjectStore, &raw); err != nil || raw.ID <= 0 || raw.Size == nil {
 		return ObjectStore{}, &PortalError{Kind: PortalContract, Err: err}
 	}
 	store := ObjectStore{
 		ServiceID: envelope.ServiceID, ID: raw.ID, Name: raw.Name,
 		Status: raw.Status, Locked: raw.Locked, BucketCount: raw.BucketCount,
-		BucketLimit: raw.BucketLimit, Size: raw.Size, SizeUnit: raw.SizeUnit,
+		BucketLimit: raw.BucketLimit, Size: *raw.Size, SizeUnit: raw.SizeUnit,
 		MaxQuotaGB: raw.MaxQuotaGB, QuotaGB: raw.QuotaGB,
-		Buckets:  append([]Bucket(nil), raw.Buckets...),
+		Buckets:  make([]Bucket, 0, len(raw.Buckets)),
 		KeyPairs: make([]KeyPair, 0, len(raw.KeyPairs)),
 	}
+	for _, item := range raw.Buckets {
+		if item.Size == nil {
+			return ObjectStore{}, &PortalError{Kind: PortalContract}
+		}
+		store.Buckets = append(store.Buckets, Bucket{
+			Name: item.Name, Size: *item.Size, SizeUnit: item.SizeUnit,
+			QuotaGB: item.QuotaGB, ObjectsCount: item.ObjectsCount,
+			AccessType: item.AccessType, VersioningEnabled: item.VersioningEnabled,
+			PathStyleLink:          item.PathStyleLink,
+			VirtualHostedStyleLink: item.VirtualHostedStyleLink,
+		})
+	}
 	for _, item := range raw.KeyPairs {
+		if item.ID <= 0 {
+			return ObjectStore{}, &PortalError{Kind: PortalContract}
+		}
 		createdAt, _ := time.Parse(time.RFC3339, item.CreatedAt)
 		store.KeyPairs = append(store.KeyPairs, KeyPair{
 			ID: item.ID, Name: item.Name, InstanceID: item.InstanceID,
