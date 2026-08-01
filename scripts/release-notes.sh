@@ -30,4 +30,3 @@ awk -v version="$version" '
 	printf 'CHANGELOG.md has no non-empty "## %s" release section\n' "$version" >&2
 	exit 1
 }
-

@@ -159,4 +159,3 @@ every release target. Release tags matching `v*` must have a corresponding
 `## X.Y.Z - YYYY-MM-DD` section in `CHANGELOG.md`; the release workflow uses
 that section verbatim as the GitHub release notes and uploads the binaries and
 checksums.
-

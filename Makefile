@@ -48,4 +48,3 @@ dist:
 	else \
 		shasum -a 256 regru_$(VERSION)_* > checksums.txt; \
 	fi
-

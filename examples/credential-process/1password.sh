@@ -50,4 +50,3 @@ op item get "$item" \
 		} |
 		if (.fields | length) == 0 then error("no supported fields") else . end
 	'
-
