@@ -130,3 +130,9 @@ provider name, and configured booleans only. They never render stable IDs,
 opaque references, the credential-process command, environment IDs, or
 provider identity. `capability list` reports local configured/not-configured
 state; `capability probe` is the bounded provider-facing verification seam.
+It runs only checks with local credential or portal routing, caps each check at
+five seconds (or the shorter command timeout), and returns partial results.
+Provider results are discarded; output contains only capability names,
+`available`/`unavailable` state, and stable reasons such as
+`missing_credentials`, `authentication_lost`, `private_contract_drift`,
+`provider_contract_drift`, `timeout`, and `adapter_unavailable`.

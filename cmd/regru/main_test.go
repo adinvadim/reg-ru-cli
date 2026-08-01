@@ -3,15 +3,15 @@ package main
 import (
 	"testing"
 
-	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/authcli"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/capability"
 )
 
-func TestProductionOptionsEnablePortalAuthentication(t *testing.T) {
+func TestProductionOptionsEnableCapabilityProbing(t *testing.T) {
 	t.Parallel()
 
 	options := productionOptions()
 
-	if _, ok := options.Executor.(*authcli.Executor); !ok {
-		t.Fatalf("Executor = %T, want *authcli.Executor", options.Executor)
+	if _, ok := options.Executor.(*capability.Executor); !ok {
+		t.Fatalf("Executor = %T, want *capability.Executor", options.Executor)
 	}
 }

@@ -87,6 +87,17 @@ define profiles, endpoints, session handles, or credential routing. Secrets,
 cookies, browser storage, CSRF values, and service credentials are never
 accepted as flags, environment variables, or normal config.
 
+`capability probe` checks only provider surfaces for which the selected profile
+has local credential or portal routing. The current bounded checks cover portal
+session status, CloudVPS authentication through a balance-shape read, REG.API
+billing through a balance-shape read, the REG.Cloud S3 semantic probe, and the
+experimental support adapter gate. Each check is capped at five seconds or the
+shorter command timeout. A failed check does not hide successful siblings:
+human, JSON, and plain output report partial availability using only normalized
+capability, state, and reason fields. Provider response bodies, balances,
+resource collections, identifiers, request IDs, and adapter messages are
+discarded before rendering.
+
 ## Browser-backed portal sessions
 
 `auth login` opens a headed Chrome or Chromium process with a dedicated profile

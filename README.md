@@ -23,6 +23,9 @@ probed and fail closed instead of guessing or scraping rendered pages.
 Run `regru capability list` for locally configured capability state and
 `regru capability probe` for bounded provider-facing verification. A command
 remaining visible in help does not mean the selected account can execute it.
+The probe reports only normalized availability and reason codes; it never
+passes through provider payloads, balances, resource identifiers, or private
+adapter errors.
 
 ## Install
 

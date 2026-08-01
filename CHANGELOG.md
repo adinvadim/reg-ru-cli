@@ -11,3 +11,4 @@
 - Add value-redacted portal invoice enrichment and a confirmed, non-shareable visible-browser checkout handoff while keeping unavailable bill-specific method enumeration gated.
 - Add a typed experimental support command boundary with deferred message input, redacted dry runs, and precise fail-closed reasons for every uncaptured private ticket capability.
 - Add install, configuration, architecture, and capability documentation plus reproducible local checks, secret-scanning CI, cross-platform builds, and changelog-backed GitHub releases.
+- Add bounded, provider-facing capability probes with partial redacted results and stable reasons for missing credentials, authentication loss, contract drift, and unavailable adapters.
