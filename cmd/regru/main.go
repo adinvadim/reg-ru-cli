@@ -13,6 +13,7 @@ import (
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
 	regs3 "github.com/adinvadim/reg-ru-cli/internal/provider/s3"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/support"
 )
 
 const portalLoginURL = "https://www.reg.ru/user/account/"
@@ -52,6 +53,7 @@ func productionOptions() cli.Options {
 	options.Executor = regs3.NewExecutor(options.Profiles, regs3.ExecutorOptions{
 		ControlPlane: regs3.NewPortalControlPlane(broker),
 	}, options.Executor)
+	options.Executor = support.NewExecutor(options.Executor)
 	options.Executor = authcli.New(options.Profiles, broker, options.Executor)
 	return options
 }

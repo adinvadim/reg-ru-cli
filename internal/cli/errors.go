@@ -154,6 +154,14 @@ func CapabilityUnavailable(capability, message string) *CLIError {
 	)
 }
 
+func CapabilityUnavailableWithReason(capability, reason, message string) *CLIError {
+	err := CapabilityUnavailable(capability, message)
+	if reason != "" {
+		err.Details["reason"] = reason
+	}
+	return err
+}
+
 func ProviderError(
 	provider string,
 	code string,
