@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/adinvadim/reg-ru-cli/internal/cli"
 	"github.com/adinvadim/reg-ru-cli/internal/profile"
@@ -174,24 +175,40 @@ func renderStatus(account string, status session.Status) cli.Result {
 	if status.Reason != "" {
 		plain += "\t" + status.Reason
 	}
+	human := fmt.Sprintf("Portal session for %s: %s", account, status.State)
+	if status.ProviderLogin != "" {
+		login := escapeOutputField(status.ProviderLogin)
+		plain += "\tprovider_login=" + login
+		human += fmt.Sprintf(" (REG.RU login: %s)", login)
+	}
 	capabilities := []string{}
 	if status.State == session.StateActive {
 		capabilities = append(capabilities, "auth.browser_session")
 	}
 	return cli.Result{
-		Human: fmt.Sprintf("Portal session for %s: %s", account, status.State),
+		Human: human,
 		Plain: []string{plain},
 		Data: map[string]any{
-			"account":      account,
-			"state":        status.State,
-			"reason":       status.Reason,
-			"capabilities": capabilities,
+			"account":       account,
+			"providerLogin": status.ProviderLogin,
+			"state":         status.State,
+			"reason":        status.Reason,
+			"capabilities":  capabilities,
 		},
 		Warnings: []cli.Warning{{
 			Code:    "experimental_private_portal",
 			Message: "browser-backed REG.RU portal integration is experimental",
 		}},
 	}
+}
+
+func escapeOutputField(value string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		"\t", `\t`,
+		"\n", `\n`,
+		"\r", `\r`,
+	).Replace(value)
 }
 
 func translate(operation cli.Operation, err error) error {

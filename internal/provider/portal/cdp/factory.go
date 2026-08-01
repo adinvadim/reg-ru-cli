@@ -195,9 +195,13 @@ type browser struct {
 	done            chan struct{}
 	closeOnce       sync.Once
 	closeErr        error
+	page            session.PageExecutor
 }
 
 func (b *browser) Executor() session.PageExecutor {
+	if b.page != nil {
+		return b.page
+	}
 	return &pageExecutor{browser: b}
 }
 

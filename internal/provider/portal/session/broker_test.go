@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
 )
+
+const fixtureProviderLogin = "portal-login@example.test"
 
 func TestLoginCommitsAnIsolatedSessionWithoutPersistingRawIdentity(t *testing.T) {
 	t.Parallel()
@@ -22,6 +25,7 @@ func TestLoginCommitsAnIsolatedSessionWithoutPersistingRawIdentity(t *testing.T)
 		waitObservation: session.Observation{
 			State:          session.ObservedAuthenticated,
 			IdentityDigest: expectedDigest,
+			ProviderLogin:  fixtureProviderLogin,
 		},
 	}
 	broker := session.NewBroker(store, &fakeBrowserFactory{browser: browser}, session.Options{
@@ -37,6 +41,9 @@ func TestLoginCommitsAnIsolatedSessionWithoutPersistingRawIdentity(t *testing.T)
 	}
 	if result.Status.State != session.StateActive {
 		t.Fatalf("state = %q, want %q", result.Status.State, session.StateActive)
+	}
+	if result.Status.ProviderLogin != fixtureProviderLogin {
+		t.Errorf("provider login = %q, want %q", result.Status.ProviderLogin, fixtureProviderLogin)
 	}
 	if result.SessionRef == "" {
 		t.Fatal("session ref is empty")
@@ -63,10 +70,40 @@ func TestLoginCommitsAnIsolatedSessionWithoutPersistingRawIdentity(t *testing.T)
 	if err != nil {
 		t.Fatalf("json.Marshal(record): %v", err)
 	}
-	for _, forbidden := range []string{"user@example.test", "password", "cookie"} {
+	for _, forbidden := range []string{fixtureProviderLogin, "user@example.test", "password", "cookie"} {
 		if bytes.Contains(bytes.ToLower(encoded), []byte(forbidden)) {
 			t.Errorf("stored record contains forbidden identity/session material %q", forbidden)
 		}
+	}
+}
+
+func TestLoginRejectsAuthenticatedObservationWithoutProviderLogin(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	broker := session.NewBroker(
+		session.NewFileStore(root),
+		&fakeBrowserFactory{browser: &fakeBrowser{
+			waitObservation: session.Observation{
+				State:          session.ObservedAuthenticated,
+				IdentityDigest: bytes.Repeat([]byte{0x2b}, session.IdentityDigestBytes),
+			},
+		}},
+		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
+	)
+
+	_, err := broker.Login(context.Background(), session.LoginSpec{
+		ProfileID: "p_aaaaaaaaaaaaaaaaaaaaaaaaab",
+	})
+	if !session.IsCode(err, session.CodeContractDrift) {
+		t.Fatalf("Login() error = %v, want contract drift", err)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil {
+		t.Fatalf("ReadDir() error = %v", readErr)
+	}
+	if sessionDirectories := entryNames(entries); len(sessionDirectories) != 0 {
+		t.Errorf("staged session directories remain: %v", sessionDirectories)
 	}
 }
 
@@ -82,6 +119,7 @@ func TestLoginRejectsAnotherPrincipalAndPreservesCommittedSession(t *testing.T) 
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: firstDigest,
+				ProviderLogin:  fixtureProviderLogin,
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -99,6 +137,7 @@ func TestLoginRejectsAnotherPrincipalAndPreservesCommittedSession(t *testing.T) 
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: bytes.Repeat([]byte{0x22}, session.IdentityDigestBytes),
+				ProviderLogin:  "another-login@example.test",
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -110,6 +149,9 @@ func TestLoginRejectsAnotherPrincipalAndPreservesCommittedSession(t *testing.T) 
 	})
 	if !session.IsCode(err, session.CodeAccountMismatch) {
 		t.Fatalf("second Login() error = %v, want account mismatch", err)
+	}
+	if strings.Contains(err.Error(), "another-login@example.test") {
+		t.Fatal("account mismatch error exposed the observed provider login")
 	}
 
 	record, err := store.Load(
@@ -173,6 +215,7 @@ func TestStatusReportsPreviouslyActiveSessionAsLost(t *testing.T) {
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: digest,
+				ProviderLogin:  fixtureProviderLogin,
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -202,6 +245,9 @@ func TestStatusReportsPreviouslyActiveSessionAsLost(t *testing.T) {
 	if status.State != session.StateSessionLost || status.Reason != "session-lost" {
 		t.Errorf("status = %+v, want session-lost", status)
 	}
+	if status.ProviderLogin != "" {
+		t.Errorf("lost-session provider login = %q, want empty", status.ProviderLogin)
+	}
 	if !statusBrowser.closed {
 		t.Error("browser was not closed after status probe")
 	}
@@ -229,6 +275,7 @@ func TestConcurrentUseOfOneProfileFailsBeforeOpeningAnotherBrowser(t *testing.T)
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: digest,
+				ProviderLogin:  fixtureProviderLogin,
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -283,6 +330,7 @@ func TestLogoutDeletesLocalProfileOnlyAfterProviderConfirmsNoSession(t *testing.
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: digest,
+				ProviderLogin:  fixtureProviderLogin,
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -331,6 +379,7 @@ func TestLogoutPreservesLocalProfileWhenProviderOutcomeIsUnknown(t *testing.T) {
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: digest,
+				ProviderLogin:  fixtureProviderLogin,
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -375,6 +424,7 @@ func TestWithSessionRunsTypedProgramAfterIdentityCheckedRefresh(t *testing.T) {
 			waitObservation: session.Observation{
 				State:          session.ObservedAuthenticated,
 				IdentityDigest: digest,
+				ProviderLogin:  fixtureProviderLogin,
 			},
 		}},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
@@ -393,6 +443,7 @@ func TestWithSessionRunsTypedProgramAfterIdentityCheckedRefresh(t *testing.T) {
 		refreshObservation: session.Observation{
 			State:          session.ObservedAuthenticated,
 			IdentityDigest: digest,
+			ProviderLogin:  fixtureProviderLogin,
 		},
 		executor: executor,
 	}
@@ -437,7 +488,7 @@ func TestHandoffKeepsVerifiedVisibleBrowserOpenAfterProgramDispatch(t *testing.T
 	store := session.NewFileStore(t.TempDir())
 	digest := bytes.Repeat([]byte{0x77}, session.IdentityDigestBytes)
 	loginBroker := session.NewBroker(store, &fakeBrowserFactory{browser: &fakeBrowser{
-		waitObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest},
+		waitObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest, ProviderLogin: fixtureProviderLogin},
 	}}, session.Options{LoginURL: "https://www.reg.ru/user/account/"})
 	login, err := loginBroker.Login(context.Background(), session.LoginSpec{
 		ProfileID: "p_77777777777777777777777777",
@@ -448,7 +499,7 @@ func TestHandoffKeepsVerifiedVisibleBrowserOpenAfterProgramDispatch(t *testing.T
 
 	executor := &fixtureExecutor{result: json.RawMessage(`{"state":"browser-opened"}`)}
 	browser := &fakeBrowser{
-		refreshObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest},
+		refreshObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest, ProviderLogin: fixtureProviderLogin},
 		executor:           executor,
 	}
 	factory := &fakeBrowserFactory{browser: browser}
@@ -474,7 +525,7 @@ func TestHandoffKeepsVerifiedVisibleBrowserOpenAfterProgramDispatch(t *testing.T
 
 	dispatchErr := errors.New("checkout dispatch was not confirmed")
 	failedBrowser := &fakeBrowser{
-		refreshObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest},
+		refreshObservation: session.Observation{State: session.ObservedAuthenticated, IdentityDigest: digest, ProviderLogin: fixtureProviderLogin},
 		executor:           executor,
 	}
 	failedBroker := session.NewBroker(store, &fakeBrowserFactory{browser: failedBrowser}, session.Options{})
@@ -579,6 +630,7 @@ func (f *concurrentBrowserFactory) Open(
 		refreshObservation: session.Observation{
 			State:          session.ObservedAuthenticated,
 			IdentityDigest: f.digest,
+			ProviderLogin:  fixtureProviderLogin,
 		},
 	}, nil
 }
@@ -605,6 +657,7 @@ func (b *blockingBrowser) Refresh(
 	return session.Observation{
 		State:          session.ObservedAuthenticated,
 		IdentityDigest: b.digest,
+		ProviderLogin:  fixtureProviderLogin,
 	}, nil
 }
 

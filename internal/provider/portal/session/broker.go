@@ -121,7 +121,10 @@ func (b *Broker) Login(
 	keepStaged = true
 	return LoginResult{
 		SessionRef: committed.SessionRef,
-		Status:     Status{State: StateActive},
+		Status: Status{
+			State:         StateActive,
+			ProviderLogin: observation.ProviderLogin,
+		},
 	}, nil
 }
 
@@ -203,7 +206,10 @@ func (b *Broker) Status(
 		); err != nil {
 			return Status{}, sessionError(CodeState, err)
 		}
-		return Status{State: StateActive}, nil
+		return Status{
+			State:         StateActive,
+			ProviderLogin: observation.ProviderLogin,
+		}, nil
 	default:
 		return Status{}, sessionError(
 			CodeContractDrift,

@@ -140,6 +140,7 @@ func (b *browser) probe(
 	var reduced struct {
 		State  string `json:"state"`
 		Digest string `json:"digest,omitempty"`
+		Login  string `json:"login,omitempty"`
 	}
 	if err := json.Unmarshal(result, &reduced); err != nil {
 		return session.Observation{
@@ -148,6 +149,9 @@ func (b *browser) probe(
 	}
 	switch reduced.State {
 	case "authenticated":
+		if reduced.Login == "" {
+			return session.Observation{State: session.ObservedIncompatible}, nil
+		}
 		digest, err := base64.RawStdEncoding.DecodeString(reduced.Digest)
 		if err != nil {
 			return session.Observation{State: session.ObservedIncompatible}, nil
@@ -155,6 +159,7 @@ func (b *browser) probe(
 		return session.Observation{
 			State:          session.ObservedAuthenticated,
 			IdentityDigest: digest,
+			ProviderLogin:  reduced.Login,
 		}, nil
 	case "no-session":
 		return session.Observation{State: session.ObservedNoSession}, nil
@@ -193,14 +198,14 @@ const authProbeProgram = `async function(args) {
 	if (!value || typeof value.status !== "string") return {state: "incompatible"};
 	if (value.status === "no_user_session") return {state: "no-session"};
 	if (value.status !== "session_refreshed") return {state: "incompatible"};
-	if (!value.user_id || !value.screen_name) return {state: "incompatible"};
+	if (!value.user_id || typeof value.screen_name !== "string" || !value.screen_name) return {state: "incompatible"};
 	const identity = JSON.stringify([String(value.user_id), String(value.screen_name)]);
 	const keyBytes = Uint8Array.from(atob(args.key.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
 	const key = await crypto.subtle.importKey("raw", keyBytes, {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
 	const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(identity)));
 	let binary = "";
 	for (const byte of digest) binary += String.fromCharCode(byte);
-	return {state: "authenticated", digest: btoa(binary).replace(/=+$/, "")};
+	return {state: "authenticated", digest: btoa(binary).replace(/=+$/, ""), login: value.screen_name};
 }`
 
 const logoutProgram = `async function(args) {

@@ -45,11 +45,13 @@ type ProgramID string
 type Observation struct {
 	State          ObservationState
 	IdentityDigest []byte
+	ProviderLogin  string
 }
 
 type Status struct {
-	State  State  `json:"state"`
-	Reason string `json:"reason,omitempty"`
+	State         State  `json:"state"`
+	Reason        string `json:"reason,omitempty"`
+	ProviderLogin string `json:"providerLogin,omitempty"`
 }
 
 type LoginSpec struct {
@@ -152,6 +154,12 @@ func validateObservation(observation Observation) error {
 			return sessionError(
 				CodeContractDrift,
 				fmt.Errorf("identity digest has an unexpected size"),
+			)
+		}
+		if observation.ProviderLogin == "" {
+			return sessionError(
+				CodeContractDrift,
+				errors.New("provider login is unavailable"),
 			)
 		}
 		return nil

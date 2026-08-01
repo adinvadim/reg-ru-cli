@@ -20,6 +20,7 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 
 	const alias = "personal"
 	const profileID = "p_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const providerLogin = "portal-login@example.test"
 	profiles := profile.NewMemoryRepository(profile.Config{
 		SchemaVersion: profile.SchemaVersion,
 		Accounts: map[string]profile.Account{
@@ -33,7 +34,7 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 	store := session.NewFileStore(t.TempDir())
 	broker := session.NewBroker(
 		store,
-		&lifecycleBrowserFactory{digest: digest},
+		&lifecycleBrowserFactory{digest: digest, providerLogin: providerLogin},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
 	executor := authcli.New(profiles, broker, cli.UnavailableExecutor{})
@@ -49,6 +50,7 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 		t.Fatalf("login exit = %d; stderr=%s", login.exitCode, login.stderr)
 	}
 	assertAuthState(t, login.stdout, "active")
+	assertProviderLogin(t, login.stdout, providerLogin)
 	assertCapability(t, login.stdout, "auth.browser_session")
 
 	config, err := profiles.Load()
@@ -101,6 +103,30 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 		t.Fatalf("status exit = %d; stderr=%s", status.exitCode, status.stderr)
 	}
 	assertAuthState(t, status.stdout, "active")
+	assertProviderLogin(t, status.stdout, providerLogin)
+
+	humanStatus := executeCLI(t, profiles, executor,
+		"--account", alias,
+		"auth", "status",
+	)
+	if humanStatus.exitCode != cli.ExitOK {
+		t.Fatalf("human status exit = %d; stderr=%s", humanStatus.exitCode, humanStatus.stderr)
+	}
+	if want := "Portal session for personal: active (REG.RU login: portal-login@example.test)\n"; humanStatus.stdout != want {
+		t.Errorf("human status = %q, want %q", humanStatus.stdout, want)
+	}
+
+	plainStatus := executeCLI(t, profiles, executor,
+		"--plain",
+		"--account", alias,
+		"auth", "status",
+	)
+	if plainStatus.exitCode != cli.ExitOK {
+		t.Fatalf("plain status exit = %d; stderr=%s", plainStatus.exitCode, plainStatus.stderr)
+	}
+	if want := "personal\tactive\tprovider_login=portal-login@example.test\n"; plainStatus.stdout != want {
+		t.Errorf("plain status = %q, want %q", plainStatus.stdout, want)
+	}
 
 	refresh := executeCLI(t, profiles, executor,
 		"--json",
@@ -112,6 +138,7 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 		t.Fatalf("refresh exit = %d; stderr=%s", refresh.exitCode, refresh.stderr)
 	}
 	assertAuthState(t, refresh.stdout, "active")
+	assertProviderLogin(t, refresh.stdout, providerLogin)
 
 	logout := executeCLI(t, profiles, executor,
 		"--json",
@@ -148,7 +175,8 @@ func TestPortalSessionsAreIsolatedAcrossAccountProfiles(t *testing.T) {
 	broker := session.NewBroker(
 		store,
 		&lifecycleBrowserFactory{
-			digest: bytes.Repeat([]byte{0x31}, session.IdentityDigestBytes),
+			digest:        bytes.Repeat([]byte{0x31}, session.IdentityDigestBytes),
+			providerLogin: "shared-login@example.test",
 		},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
@@ -186,6 +214,46 @@ func TestPortalSessionsAreIsolatedAcrossAccountProfiles(t *testing.T) {
 	}
 	if first.ProfileDir == second.ProfileDir {
 		t.Errorf("profile directories are shared: %q", first.ProfileDir)
+	}
+}
+
+func TestAuthStatusEscapesProviderLoginInTextModes(t *testing.T) {
+	t.Parallel()
+
+	const alias = "work"
+	const profileID = "p_dddddddddddddddddddddddddd"
+	const providerLogin = "portal\\login\tline\nnext\r"
+	profiles := profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts: map[string]profile.Account{
+			alias: {ID: profileID, Provider: "reg.ru"},
+		},
+	})
+	broker := session.NewBroker(
+		session.NewFileStore(t.TempDir()),
+		&lifecycleBrowserFactory{
+			digest:        bytes.Repeat([]byte{0x41}, session.IdentityDigestBytes),
+			providerLogin: providerLogin,
+		},
+		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
+	)
+	executor := authcli.New(profiles, broker, nil)
+	login := executeCLI(t, profiles, executor,
+		"--json", "--force", "--account", alias,
+		"auth", "login", "--login-timeout", "1m",
+	)
+	if login.exitCode != cli.ExitOK {
+		t.Fatalf("login exit = %d; stderr=%s", login.exitCode, login.stderr)
+	}
+	assertProviderLogin(t, login.stdout, providerLogin)
+
+	human := executeCLI(t, profiles, executor, "--account", alias, "auth", "status")
+	if want := "Portal session for work: active (REG.RU login: portal\\\\login\\tline\\nnext\\r)\n"; human.stdout != want {
+		t.Errorf("human status = %q, want %q", human.stdout, want)
+	}
+	plain := executeCLI(t, profiles, executor, "--plain", "--account", alias, "auth", "status")
+	if want := "work\tactive\tprovider_login=portal\\\\login\\tline\\nnext\\r\n"; plain.stdout != want {
+		t.Errorf("plain status = %q, want %q", plain.stdout, want)
 	}
 }
 
@@ -251,19 +319,36 @@ func assertCapability(t *testing.T, output, expected string) {
 	t.Errorf("capabilities = %v, want %q", envelope.Data.Capabilities, expected)
 }
 
+func assertProviderLogin(t *testing.T, output, expected string) {
+	t.Helper()
+	var envelope struct {
+		Data struct {
+			ProviderLogin string `json:"providerLogin"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, output)
+	}
+	if envelope.Data.ProviderLogin != expected {
+		t.Errorf("provider login = %q, want %q", envelope.Data.ProviderLogin, expected)
+	}
+}
+
 type lifecycleBrowserFactory struct {
-	digest []byte
+	digest        []byte
+	providerLogin string
 }
 
 func (f *lifecycleBrowserFactory) Open(
 	context.Context,
 	session.OpenSpec,
 ) (session.Browser, error) {
-	return &lifecycleBrowser{digest: f.digest}, nil
+	return &lifecycleBrowser{digest: f.digest, providerLogin: f.providerLogin}, nil
 }
 
 type lifecycleBrowser struct {
-	digest []byte
+	digest        []byte
+	providerLogin string
 }
 
 func (b *lifecycleBrowser) WaitForAuthentication(
@@ -273,6 +358,7 @@ func (b *lifecycleBrowser) WaitForAuthentication(
 	return session.Observation{
 		State:          session.ObservedAuthenticated,
 		IdentityDigest: b.digest,
+		ProviderLogin:  b.providerLogin,
 	}, nil
 }
 
@@ -283,6 +369,7 @@ func (b *lifecycleBrowser) Refresh(
 	return session.Observation{
 		State:          session.ObservedAuthenticated,
 		IdentityDigest: b.digest,
+		ProviderLogin:  b.providerLogin,
 	}, nil
 }
 

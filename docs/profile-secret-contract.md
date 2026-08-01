@@ -128,8 +128,13 @@ only configured profile.
 `account list`, `account show`, and `account doctor` expose aliases, labels,
 provider name, and configured booleans only. They never render stable IDs,
 opaque references, the credential-process command, environment IDs, or
-provider identity. `capability list` reports local configured/not-configured
-state; `capability probe` is the bounded provider-facing verification seam.
+provider identity. The separate `auth login`, `auth status`, and `auth refresh`
+results deliberately identify an active browser session with its freshly
+observed REG.RU provider login. That value does not come from the credential
+process and is not persisted; provider user IDs, identity digests, session
+references, and credential-process fields remain redacted. `capability list`
+reports local configured/not-configured state; `capability probe` is the bounded
+provider-facing verification seam.
 It runs only checks with local credential or portal routing, caps each check at
 five seconds (or the shorter command timeout), and returns partial results.
 Provider results are discarded; output contains only capability names,

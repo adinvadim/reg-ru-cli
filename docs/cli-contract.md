@@ -103,9 +103,10 @@ discarded before rendering.
 `auth login` opens a headed Chrome or Chromium process with a dedicated profile
 owned by the selected local account. Authentication fields, CAPTCHA, and
 second-factor challenges stay in that browser. A successful provider refresh
-is reduced in an isolated browser world to an opaque keyed principal digest;
-the CLI never receives the raw principal, cookies, CSRF values, or response
-body.
+is reduced in an isolated browser world to an opaque keyed principal digest
+plus the provider's `screen_name`, exposed as the REG.RU provider login. The
+provider user ID, cookies, CSRF values, and response body never leave that
+world.
 
 Each login is staged in a new browser profile. It replaces the committed
 session reference only after authentication and principal matching succeed, so
@@ -118,22 +119,30 @@ inside the committed browser profile. This may extend the provider session.
 Their stable state values are `not-established`, `active`, and `session-lost`;
 the latter deliberately does not guess whether the provider invalidated the
 session because of expiry, logout elsewhere, revocation, or another cause.
+An active result keeps the local profile alias in `account` and reports the
+freshly observed REG.RU login separately as `providerLogin`. Human output labels
+it `REG.RU login`; plain output appends `provider_login=<escaped-login>` to the
+existing account and state fields. A missing or non-string login in an otherwise
+authenticated probe is private-contract drift, not an empty or guessed login.
 `auth logout` removes local browser state only after the provider confirms that
 the session is gone. An ambiguous logout keeps the local reference and returns
 `outcome_unknown`.
 
-Normal config stores only an opaque `s_...` session reference. Browser state
-lives beneath `<UserConfigDir>/regru/portal-sessions`, separately for every
-account, with an OS-backed exclusive lock while in use. The directory is
-private to the current OS user but is intentionally not wrapped in
+Normal config stores only an opaque `s_...` session reference. The observed
+provider login is not written to normal config or browser-session metadata.
+Browser state lives beneath `<UserConfigDir>/regru/portal-sessions`, separately
+for every account, with an OS-backed exclusive lock while in use. The directory
+is private to the current OS user but is intentionally not wrapped in
 application-managed encryption.
 
 Portal-session failures use stable codes including `missing_browser`,
 `login_cancelled`, `portal_profile_busy`, `authentication_expired`,
 `account_mismatch`, `browser_session_interrupted`,
-`private_contract_drift`, and `outcome_unknown`. Output contains the account
-alias, reduced state, and currently verified capability names only, never the
-opaque session reference or browser profile path.
+`private_contract_drift`, and `outcome_unknown`. Successful active auth output
+contains the account alias, provider login, reduced state, and currently
+verified capability names. It never contains the provider user ID, identity
+digest, opaque session reference, browser profile path, cookies, CSRF values,
+browser storage, tokens, or credential-process fields.
 
 ## Credential process
 
@@ -174,7 +183,13 @@ JSON success:
   "schemaVersion": "regru.cli/v1",
   "ok": true,
   "command": "auth status",
-  "data": {},
+  "data": {
+    "account": "personal",
+    "providerLogin": "provider-login",
+    "state": "active",
+    "reason": "",
+    "capabilities": ["auth.browser_session"]
+  },
   "warnings": []
 }
 ```

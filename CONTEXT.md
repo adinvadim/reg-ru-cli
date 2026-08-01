@@ -40,6 +40,13 @@ The one REG.RU account identity authenticated inside a browser session. A
 portal principal is not a Cloud environment and cannot be changed by selecting
 a service, contract number, header, or URL parameter.
 
+### Provider login
+
+The REG.RU login reported by the authoritative browser-session identity probe.
+It is distinct from the local account-profile alias and is rendered only by
+successful authentication status results; it is not persisted in config or
+browser-session metadata.
+
 ### Browser session
 
 The provider-managed authenticated state for exactly one portal principal
