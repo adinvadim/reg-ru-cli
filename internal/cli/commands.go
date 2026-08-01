@@ -23,6 +23,7 @@ type commandSpec struct {
 	args        cobra.PositionalArgs
 	timeout     func() time.Duration
 	parameters  func() map[string][]string
+	input       func() InputResolver
 	noWait      func() bool
 }
 
@@ -64,6 +65,9 @@ func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
 			}
 			if spec.parameters != nil {
 				operation.Parameters = spec.parameters()
+			}
+			if spec.input != nil {
+				operation.Input = spec.input()
 			}
 			if spec.noWait != nil {
 				operation.NoWait = spec.noWait()
@@ -1057,21 +1061,6 @@ func gateUnavailableCommand(
 		}
 		return CapabilityUnavailable(capability, message)
 	}
-}
-
-func newSupportCommand(app *appRuntime) *cobra.Command {
-	tickets := newGroupCommand(
-		"ticket",
-		"Manage experimental private support-ticket operations",
-		newOperationCommand(app, readSpec("list", "List support tickets", "support.private", "support.ticket.list", cobra.NoArgs)),
-		newOperationCommand(app, readSpec("get <id>", "Show a support ticket", "support.private", "support.ticket.get", cobra.ExactArgs(1))),
-		newOperationCommand(app, mutationSpec("create", "Create a support ticket", "support.private", "support.ticket.create", cobra.NoArgs)),
-		newOperationCommand(app, mutationSpec("reply <id>", "Reply to a support ticket", "support.private", "support.ticket.reply", cobra.ExactArgs(1))),
-		newOperationCommand(app, mutationSpec("attach <id> <path>", "Attach a file to a support ticket", "support.private", "support.ticket.attach", cobra.ExactArgs(2))),
-		newOperationCommand(app, mutationSpec("close <id>", "Close a support ticket", "support.private", "support.ticket.close", cobra.ExactArgs(1))),
-		newOperationCommand(app, mutationSpec("reopen <id>", "Reopen a support ticket", "support.private", "support.ticket.reopen", cobra.ExactArgs(1))),
-	)
-	return newGroupCommand("support", "Use the experimental private support adapter", tickets)
 }
 
 func readSpec(

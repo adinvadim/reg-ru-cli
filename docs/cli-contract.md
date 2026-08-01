@@ -72,6 +72,8 @@ REG.RU S3 commands use separate private-control-plane and signed-protocol
 adapters; see the [S3 command guide](s3.md).
 Billing commands preserve the boundary between REG.API invoices and CloudVPS
 finance; see the [billing command guide](billing.md).
+Support commands expose a typed experimental boundary but currently fail closed
+with operation-specific reasons; see the [support command guide](support.md).
 
 Account selection follows this precedence:
 

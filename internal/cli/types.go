@@ -56,10 +56,17 @@ type Operation struct {
 	WaitTimeout    time.Duration
 	Force          bool
 	Credentials    CredentialResolver
+	Input          InputResolver
 }
 
 type CredentialResolver interface {
 	Resolve(context.Context, string) ([]byte, error)
+}
+
+// InputResolver defers reading potentially sensitive command input until a
+// provider adapter has passed its capability and contract gates.
+type InputResolver interface {
+	Resolve(context.Context) ([]byte, error)
 }
 
 type Result struct {
