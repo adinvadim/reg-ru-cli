@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/adinvadim/reg-ru-cli/internal/profile"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
@@ -27,6 +28,13 @@ type fakeSupportPage struct {
 	errors    []error
 	programs  []session.ProgramID
 	navigated string
+}
+
+func newTestPortal(page *fakeSupportPage) *Portal {
+	portal := NewPortal(&fakeSupportBroker{page: page})
+	portal.pollInterval = time.Millisecond
+	portal.pollTimeout = 10 * time.Millisecond
+	return portal
 }
 
 func (p *fakeSupportPage) Navigate(_ context.Context, target string) error {
@@ -61,14 +69,14 @@ func TestPortalMutationTreatsProgramInterruptionAsAmbiguous(t *testing.T) {
 		responses: []json.RawMessage{json.RawMessage(`{"state":"available","tickets":[],"total":0}`)},
 		errors:    []error{nil, errors.New("page transition")},
 	}
-	portal := NewPortal(&fakeSupportBroker{page: page})
+	portal := newTestPortal(page)
 	err := portal.Mutate(context.Background(), supportPortalAccount(), MutationRequest{
 		Action: "create", Message: "test",
 	})
 	if !isPortalKind(err, PortalAmbiguous) {
 		t.Fatalf("Mutate() error = %v, want ambiguous", err)
 	}
-	if len(page.programs) != 2 {
+	if mutationProgramCalls(page.programs) != 1 {
 		t.Fatalf("programs = %v, mutation was unexpectedly retried", page.programs)
 	}
 }
@@ -85,7 +93,7 @@ func TestPortalMutationStopsAtReadPreflightDrift(t *testing.T) {
 	page := &fakeSupportPage{responses: []json.RawMessage{
 		json.RawMessage(`{"state":"build-drift"}`),
 	}}
-	portal := NewPortal(&fakeSupportBroker{page: page})
+	portal := newTestPortal(page)
 	err := portal.Mutate(context.Background(), supportPortalAccount(), MutationRequest{
 		Action: "create", Message: "test",
 	})
@@ -105,14 +113,88 @@ func TestPortalMutationDispatchesOnceAndPreservesAmbiguousOutcome(t *testing.T) 
 		json.RawMessage(`{"state":"available","tickets":[],"total":0}`),
 		json.RawMessage(`{"state":"ambiguous"}`),
 	}}
-	portal := NewPortal(&fakeSupportBroker{page: page})
+	portal := newTestPortal(page)
 	err := portal.Mutate(context.Background(), supportPortalAccount(), MutationRequest{
 		Action: "create", Message: "test",
 	})
 	if !isPortalKind(err, PortalAmbiguous) {
 		t.Fatalf("Mutate() error = %v, want ambiguous", err)
 	}
-	if len(page.programs) != 2 || page.programs[0] != programSupportRead || page.programs[1] != programSupportMutation {
-		t.Fatalf("programs = %v, want one preflight and one mutation", page.programs)
+	if mutationProgramCalls(page.programs) != 1 {
+		t.Fatalf("programs = %v, mutation was unexpectedly retried", page.programs)
 	}
+}
+
+func TestPortalGetWaitsForRenderedMessageHistory(t *testing.T) {
+	page := &fakeSupportPage{responses: []json.RawMessage{
+		json.RawMessage(`{"state":"navigating"}`),
+		json.RawMessage(`{"state":"available","ticket":{"id":"123","title":"Test","status":"open","messages":[]}}`),
+		json.RawMessage(`{"state":"available","ticket":{"id":"123","title":"Test","status":"open","messages":[{"body":"created"},{"body":"reply"}]}}`),
+	}}
+	portal := newTestPortal(page)
+	ticket, err := portal.Get(context.Background(), supportPortalAccount(), "123")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(ticket.Messages) != 2 {
+		t.Fatalf("Get() messages = %#v, want rendered history", ticket.Messages)
+	}
+}
+
+func TestPortalReconcilesInterruptedDetailMutationWithoutRetry(t *testing.T) {
+	for _, action := range []string{"reply", "close"} {
+		t.Run(action, func(t *testing.T) {
+			page := &fakeSupportPage{
+				responses: []json.RawMessage{
+					json.RawMessage(`{"state":"available","tickets":[],"total":0}`),
+					json.RawMessage(`{"state":"navigating"}`),
+					json.RawMessage(`{"state":"available","ticket":{"id":"123","title":"Test","status":"open","messages":[{"body":"created"}]}}`),
+					json.RawMessage(`{"state":"available","tickets":[],"total":0}`),
+					json.RawMessage(`{"state":"navigating"}`),
+					json.RawMessage(`{"state":"committed"}`),
+				},
+				errors: []error{nil, nil, nil, errors.New("page transition")},
+			}
+			portal := newTestPortal(page)
+			err := portal.Mutate(context.Background(), supportPortalAccount(), MutationRequest{
+				Action: action, ID: "123", Message: "reply",
+			})
+			if err != nil {
+				t.Fatalf("Mutate() error = %v, want reconciled success", err)
+			}
+			if mutationProgramCalls(page.programs) != 1 {
+				t.Fatalf("programs = %v, want exactly one mutation", page.programs)
+			}
+		})
+	}
+}
+
+func TestPortalReconcilesInterruptedCreateWithoutRetry(t *testing.T) {
+	page := &fakeSupportPage{
+		responses: []json.RawMessage{
+			json.RawMessage(`{"state":"available","tickets":[],"total":0}`),
+			json.RawMessage(`{"state":"committed"}`),
+		},
+		errors: []error{nil, errors.New("page transition")},
+	}
+	portal := newTestPortal(page)
+	err := portal.Mutate(context.Background(), supportPortalAccount(), MutationRequest{
+		Action: "create", Message: "created",
+	})
+	if err != nil {
+		t.Fatalf("Mutate() error = %v, want reconciled success", err)
+	}
+	if mutationProgramCalls(page.programs) != 1 {
+		t.Fatalf("programs = %v, want exactly one mutation", page.programs)
+	}
+}
+
+func mutationProgramCalls(programs []session.ProgramID) int {
+	calls := 0
+	for _, program := range programs {
+		if program == programSupportMutation {
+			calls++
+		}
+	}
+	return calls
 }

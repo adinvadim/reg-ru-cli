@@ -3,11 +3,16 @@ package cdp
 const supportReadProgram = `async function(args) {
 	const text = node => String(node && node.textContent || "").trim();
 	const scripts = Array.from(document.scripts).map(script => script.src);
-	if (args.action !== "detail" && !scripts.some(src => /\/dist\/support-tickets\.[a-f0-9]+\.js$/.test(src))) return {state: "build-drift"};
+	if (args.action !== "detail" && args.action !== "reconcile" && !scripts.some(src => /\/dist\/support-tickets\.[a-f0-9]+\.js$/.test(src))) return {state: "build-drift"};
 	if (location.origin !== "https://www.reg.ru" || !location.pathname.startsWith("/support/tickets")) return {state: "route-drift"};
-	if (args.action === "list") {
+	if (args.action === "list" || args.action === "reconcile-create") {
 		const root = document.querySelector(".b-support-ticket-list");
-		if (!root) return {state: "principal-drift"};
+		if (!root) return {state: args.action === "list" ? "principal-drift" : "operation-drift"};
+		if (args.action === "reconcile-create") {
+			const exact = Array.from(root.querySelectorAll(".b-support-ticket-new__msg"))
+				.filter(node => text(node) === args.message).length;
+			return {state: exact === 1 ? "committed" : "ambiguous"};
+		}
 		const tickets = [];
 		for (const row of root.querySelectorAll(".b-support-ticket-new")) {
 			const number = row.querySelector(".b-support-ticket-new__number[href]");
@@ -39,22 +44,38 @@ const supportReadProgram = `async function(args) {
 		location.assign(target.href);
 		return {state: "navigating"};
 	}
-	if (args.action !== "detail") return {state: "operation-drift"};
+	if (args.action !== "detail" && args.action !== "reconcile") return {state: "operation-drift"};
 	const root = document.querySelector(".b-support-ticket");
 	const title = root && root.querySelector(".b-support-ticket__title");
 	const status = root && root.querySelector(".b-support-ticket__state");
 	if (!root || !title || !status) return {state: "operation-drift"};
 	const messages = [];
-	for (const node of root.querySelectorAll(".b-support-ticket__message")) {
-		if (node.classList.contains("b-support-ticket__message-customer-closed")) continue;
+	let customerClosed = false;
+	const messageNodes = Array.from(root.querySelectorAll(".b-support-ticket__message"));
+	if (messageNodes.length === 0) return {state: "operation-drift"};
+	for (const node of messageNodes) {
+		if (node.classList.contains("b-support-ticket__message-customer-closed")) {
+			customerClosed = true;
+			continue;
+		}
 		const body = node.querySelector(".b-support-ticket__message-text");
-		if (!body) return {state: "response-drift"};
+		if (!body) return {state: "operation-drift"};
 		messages.push({
 			body: text(body),
 			created: text(node.querySelector(".b-support-ticket__message-created")),
 			sender: text(node.querySelector(".b-support-ticket__message-sender")),
 			kind: node.classList.contains("b-support-ticket__message_style_agent") ? "agent" : "customer"
 		});
+	}
+	if (args.action === "reconcile") {
+		if (args.mutation === "reply") {
+			const exact = messages.filter(message => message.body === args.message).length;
+			return {state: exact === 1 ? "committed" : "ambiguous"};
+		}
+		if (args.mutation === "close") {
+			return {state: status.classList.contains("b-support-ticket__state_color_red") && customerClosed ? "committed" : "ambiguous"};
+		}
+		return {state: "operation-drift"};
 	}
 	return {state: "available", ticket: {id: args.id, title: text(title), status: status.classList.contains("b-support-ticket__state_color_red") ? "closed" : "open", messages}};
 }`

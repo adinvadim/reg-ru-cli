@@ -85,9 +85,15 @@ func (e *PortalError) Error() string {
 	return string(e.Kind)
 }
 
-type Portal struct{ broker SessionBroker }
+type Portal struct {
+	broker       SessionBroker
+	pollInterval time.Duration
+	pollTimeout  time.Duration
+}
 
-func NewPortal(broker SessionBroker) *Portal { return &Portal{broker: broker} }
+func NewPortal(broker SessionBroker) *Portal {
+	return &Portal{broker: broker, pollInterval: 200 * time.Millisecond, pollTimeout: 10 * time.Second}
+}
 
 func (p *Portal) List(ctx context.Context, account profile.Account, request ListRequest) (TicketPage, error) {
 	requestBody := struct {
@@ -115,41 +121,18 @@ func (p *Portal) List(ctx context.Context, account profile.Account, request List
 }
 
 func (p *Portal) Get(ctx context.Context, account profile.Account, id string) (Ticket, error) {
-	var envelope struct {
-		State  string `json:"state"`
-		Ticket Ticket `json:"ticket"`
-	}
+	var ticket Ticket
 	if err := p.onSupportPage(ctx, account, func(page session.PageExecutor) error {
-		var navigation struct {
-			State string `json:"state"`
+		if err := navigateTicket(ctx, page, id); err != nil {
+			return err
 		}
-		err := runProgram(ctx, page, programSupportRead, map[string]any{"action": "navigate", "id": id}, &navigation)
-		if err != nil && ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err == nil {
-			if stateErr := portalStateError(navigation.State); stateErr != nil && navigation.State != "navigating" {
-				return stateErr
-			}
-		}
-		timer := time.NewTimer(time.Second)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-		}
-		return runProgram(ctx, page, programSupportRead, map[string]any{"action": "detail", "id": id}, &envelope)
+		var err error
+		ticket, err = p.waitForTicket(ctx, page, id)
+		return err
 	}); err != nil {
 		return Ticket{}, err
 	}
-	if err := portalStateError(envelope.State); err != nil {
-		return Ticket{}, err
-	}
-	if envelope.Ticket.ID != id || envelope.Ticket.Title == "" || envelope.Ticket.Messages == nil {
-		return Ticket{}, &PortalError{Kind: PortalContract}
-	}
-	return envelope.Ticket, nil
+	return ticket, nil
 }
 
 func (p *Portal) Mutate(ctx context.Context, account profile.Account, request MutationRequest) error {
@@ -173,37 +156,153 @@ func (p *Portal) Mutate(ctx context.Context, account profile.Account, request Mu
 		}
 
 		if request.Action != "create" {
-			var navigation struct {
-				State string `json:"state"`
+			if err := navigateTicket(ctx, page, request.ID); err != nil {
+				return err
 			}
-			err := runProgram(ctx, page, programSupportRead, map[string]any{"action": "navigate", "id": request.ID}, &navigation)
-			if err != nil && ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if err == nil {
-				if stateErr := portalStateError(navigation.State); stateErr != nil && navigation.State != "navigating" {
-					return stateErr
-				}
-			}
-			timer := time.NewTimer(time.Second)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-timer.C:
+			if _, err := p.waitForTicket(ctx, page, request.ID); err != nil {
+				return err
 			}
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := runProgram(ctx, page, programSupportMutation, request, &envelope); err != nil {
-			return &PortalError{Kind: PortalAmbiguous, Code: "ambiguous"}
+		mutationErr := runProgram(ctx, page, programSupportMutation, request, &envelope)
+		if mutationErr == nil {
+			stateErr := portalStateError(envelope.State)
+			if stateErr == nil || !isPortalKind(stateErr, PortalAmbiguous) {
+				return stateErr
+			}
 		}
-		return nil
+		if p.reconcileMutation(ctx, page, request) {
+			envelope.State = "committed"
+			return nil
+		}
+		return &PortalError{Kind: PortalAmbiguous, Code: "ambiguous"}
 	}); err != nil {
 		return err
 	}
 	return portalStateError(envelope.State)
+}
+
+func navigateTicket(ctx context.Context, page session.PageExecutor, id string) error {
+	var navigation struct {
+		State string `json:"state"`
+	}
+	err := runProgram(ctx, page, programSupportRead, map[string]any{"action": "navigate", "id": id}, &navigation)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// A successful location.assign can destroy the isolated world before its
+		// return value crosses CDP. The following read proves the destination.
+		return nil
+	}
+	if navigation.State == "navigating" {
+		return nil
+	}
+	return portalStateError(navigation.State)
+}
+
+func (p *Portal) waitForTicket(ctx context.Context, page session.PageExecutor, id string) (Ticket, error) {
+	deadline := time.NewTimer(p.pollTimeout)
+	defer deadline.Stop()
+	var lastErr error
+	for {
+		var envelope struct {
+			State  string `json:"state"`
+			Ticket Ticket `json:"ticket"`
+		}
+		err := runProgram(ctx, page, programSupportRead, map[string]any{"action": "detail", "id": id}, &envelope)
+		if err == nil && envelope.State == "available" {
+			if envelope.Ticket.ID == id && envelope.Ticket.Title != "" && len(envelope.Ticket.Messages) > 0 {
+				return envelope.Ticket, nil
+			}
+			lastErr = &PortalError{Kind: PortalContract, Code: "operation-drift"}
+		} else if err == nil {
+			lastErr = portalStateError(envelope.State)
+			if envelope.State != "operation-drift" {
+				return Ticket{}, lastErr
+			}
+		} else {
+			lastErr = err
+		}
+		if err := p.waitForPoll(ctx, deadline); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return Ticket{}, err
+			}
+			return Ticket{}, lastErr
+		}
+	}
+}
+
+func (p *Portal) reconcileMutation(ctx context.Context, page session.PageExecutor, request MutationRequest) bool {
+	navigator, ok := page.(session.PageNavigator)
+	if !ok || navigator.Navigate(ctx, "https://www.reg.ru/support/tickets/") != nil {
+		return false
+	}
+	if request.Action != "create" {
+		if !p.waitForList(ctx, page) || navigateTicket(ctx, page, request.ID) != nil {
+			return false
+		}
+	}
+	deadline := time.NewTimer(p.pollTimeout)
+	defer deadline.Stop()
+	for {
+		action := "reconcile"
+		if request.Action == "create" {
+			action = "reconcile-create"
+		}
+		var envelope struct {
+			State string `json:"state"`
+		}
+		err := runProgram(ctx, page, programSupportRead, map[string]any{
+			"action": action, "mutation": request.Action, "id": request.ID, "message": request.Message,
+		}, &envelope)
+		if err == nil && envelope.State == "committed" {
+			return true
+		}
+		if err == nil && envelope.State != "ambiguous" && envelope.State != "operation-drift" {
+			return false
+		}
+		if p.waitForPoll(ctx, deadline) != nil {
+			return false
+		}
+	}
+}
+
+func (p *Portal) waitForList(ctx context.Context, page session.PageExecutor) bool {
+	deadline := time.NewTimer(p.pollTimeout)
+	defer deadline.Stop()
+	for {
+		var envelope struct {
+			State string `json:"state"`
+		}
+		err := runProgram(ctx, page, programSupportRead, map[string]any{
+			"action": "list", "limit": 1, "page": 1, "status": "all",
+		}, &envelope)
+		if err == nil && envelope.State == "available" {
+			return true
+		}
+		if err == nil && envelope.State != "principal-drift" && envelope.State != "operation-drift" {
+			return false
+		}
+		if p.waitForPoll(ctx, deadline) != nil {
+			return false
+		}
+	}
+}
+
+func (p *Portal) waitForPoll(ctx context.Context, deadline *time.Timer) error {
+	interval := time.NewTimer(p.pollInterval)
+	defer interval.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-deadline.C:
+		return errors.New("support read readiness timeout")
+	case <-interval.C:
+		return nil
+	}
 }
 
 func (p *Portal) onSupportPage(ctx context.Context, account profile.Account, use func(session.PageExecutor) error) error {

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reconcile interrupted support mutations with independent reads and wait for rendered ticket history before returning details.
 - Enable experimental browser-backed support ticket list, detail, create, reply, and close operations with typed drift probes and one-attempt mutation reconciliation.
 - Preserve REG.Cloud S3 service and bucket sizes as provider-supplied strings in inventory output.
 - Keep interactive portal login alive when REG.RU navigates the staged browser during authentication.

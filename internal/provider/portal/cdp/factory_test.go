@@ -272,6 +272,7 @@ func TestSupportPortalProgramsKeepLocatorsPrivateAndReconcileExactlyOnce(t *test
 		`tickets.push({id, status:`,
 		`exact === 1 ? {state: "committed"} : {state: "ambiguous"}`,
 		`dispatched ? "ambiguous" : "transport"`,
+		`if (!body) return {state: "operation-drift"};`,
 		`document.querySelector(".b-support-ticket__state_color_red")`,
 		`document.querySelector(".b-support-ticket__message-customer-closed")`,
 	} {
