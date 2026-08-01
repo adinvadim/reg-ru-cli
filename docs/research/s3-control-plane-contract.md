@@ -1,6 +1,6 @@
 # REG.RU S3 control-plane contract
 
-Research date: 2026-07-30
+Research date: 2026-07-30; authenticated drift refresh: 2026-08-01
 
 ## Question and evidence standard
 
@@ -15,9 +15,14 @@ Only first-party evidence was used:
 - current public REG.Cloud frontend manifests and JavaScript bundles;
 - the official Amazon S3 API reference as the protocol baseline.
 
-No account, credential, bucket, key, policy, quota, or service state was read
-or changed. The frontend bundles were downloaded anonymously. The private
-GraphQL endpoint was not called.
+The initial research did not authenticate or read account state. The
+2026-08-01 drift refresh used the explicitly authorized existing profile for
+one reduced, read-only inventory capture. It retained only response types,
+field names, scalar kinds, array counts, and invariant results. It did not
+select secret fields or retain identifiers, bucket names, quota values, usage
+values, cookies, session values, request IDs, or response bodies. No bucket,
+key, policy, quota, access mode, or service state was created, changed, or
+deleted.
 
 ## Decision
 
@@ -41,6 +46,61 @@ interchangeable:
 
 The practical result for `regru` is a hard adapter boundary: S3 credentials
 alone are not sufficient for the complete bucket lifecycle.
+
+## Authenticated drift refresh: string-valued size fields
+
+The failure reported by
+[Research: refresh the REG.Cloud S3 contract after drift](https://github.com/adinvadim/reg-ru-cli/issues/31)
+is an implementation defect, not evidence that the current provider operation
+or response field set drifted.
+
+On 2026-08-01, after a fresh login committed the authorized profile, the
+production `s3 service show` read reached the S3 control-plane adapter and
+returned `private_contract_drift`. A separately reduced execution of the exact
+production `regruS3Inventory` selection against the same first-party GraphQL
+route returned HTTP 200, a data envelope, zero GraphQL errors, and
+`ObjectStore`. The current S3 and order-S3 manifests still referenced the same
+content-hashed operation bundles characterized by this note: `584...`,
+`144...`, and `170...`. ([current S3 manifest][panel-s3-manifest], [current
+S3 common bundle][panel-s3-common-bundle], [current S3 operation
+bundle][panel-s3-operation-bundle], [current order-S3
+manifest][panel-order-s3-manifest], [current order-S3
+bundle][panel-order-s3-bundle])
+
+The authorized result was reduced before inspection. Its retained shape was:
+
+| Boundary | Value-redacted invariant |
+| --- | --- |
+| Principal selection | `Environments`; exactly one environment selected; no service ID retained |
+| Envelope | HTTP 200; `data` present; zero GraphQL errors; no rejected selected field |
+| Object store | `__typename: ObjectStore`; all 15 selected keys present; `buckets` and `keypairs` are arrays |
+| Lifecycle identifiers and counters | Object-store ID and key-pair ID are positive integer JSON numbers; bucket count/limit, object count, and quota fields retain their expected number-or-null shapes |
+| Other lifecycle fields | Status and timestamps are strings; lock and versioning flags are booleans; bucket name is a string; no values retained |
+| Size fields | Both `ObjectStore.size` and `Bucket.size` are JSON strings; no size value retained |
+
+That last row violates the local decoder rather than the provider selection.
+The inventory decoder declares its raw object-store `Size` as `int64`, while
+the shared `Bucket.Size` and `ObjectStore.Size` fields are also `int64`.
+`encoding/json` rejects a JSON string for those destinations; the adapter then
+wraps that decode failure as `PortalContract`, which the executor publishes as
+`private_contract_drift`. ([control-plane decoder](../../internal/provider/s3/control_plane.go),
+[S3 types](../../internal/provider/s3/types.go), [S3 error
+translation](../../internal/provider/s3/executor.go))
+
+The safe minimal typed contract change is therefore narrow: model both
+provider `size` fields as an opaque string-backed type (or plain `string`) in
+the raw and public inventory structs. Do not coerce them to `int64` and do not
+weaken the existing positive-ID, array, typename, count, quota, lock, or
+lifecycle-field checks. Current lifecycle reconciliation does not compare
+size, so preserving the provider text restores decoding without changing a
+mutation postcondition. If numeric size arithmetic becomes a product
+requirement, characterize the string grammar and units separately before
+adding a lossless parser.
+
+This refresh establishes the observed scalar kind, not a versioned public API
+promise. A future non-string size, missing required lifecycle field, unknown
+typename, GraphQL error, or malformed array remains provider contract drift
+and must continue to fail closed.
 
 ## Operation matrix
 
