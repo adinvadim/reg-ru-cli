@@ -75,9 +75,14 @@ func (b *browser) WaitForAuthentication(
 	for {
 		observation, err := b.probe(ctx, key, programAuthProbe)
 		if err != nil {
-			return session.Observation{}, err
+			if ctx.Err() != nil {
+				return session.Observation{}, ctx.Err()
+			}
+			if !errors.Is(err, errPageTransition) {
+				return session.Observation{}, err
+			}
 		}
-		if observation.State != session.ObservedNoSession {
+		if err == nil && observation.State != session.ObservedNoSession {
 			return observation, nil
 		}
 		select {

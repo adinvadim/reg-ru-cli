@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
+	"github.com/chromedp/cdproto"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -23,6 +24,8 @@ type program struct {
 type pageExecutor struct {
 	browser *browser
 }
+
+var errPageTransition = errors.New("page transition interrupted browser program")
 
 func (e *pageExecutor) RunJSON(
 	ctx context.Context,
@@ -50,6 +53,9 @@ func (e *pageExecutor) RunJSON(
 	var raw json.RawMessage
 	err := chromedp.Run(callCtx, chromedp.ActionFunc(func(actionCtx context.Context) error {
 		frameTree, err := page.GetFrameTree().Do(actionCtx)
+		if isPageTransitionError(err) {
+			return errPageTransition
+		}
 		if err != nil || frameTree == nil || frameTree.Frame == nil {
 			return errors.New("could not verify page origin")
 		}
@@ -66,12 +72,18 @@ func (e *pageExecutor) RunJSON(
 			WithWorldName("regru-portal").
 			WithGrantUniveralAccess(false).
 			Do(actionCtx)
+		if isPageTransitionError(err) {
+			return errPageTransition
+		}
 		if err != nil {
 			return errors.New("isolated page context is unavailable")
 		}
 		global, exception, err := runtime.Evaluate("globalThis").
 			WithContextID(worldID).
 			Do(actionCtx)
+		if isPageTransitionError(err) {
+			return errPageTransition
+		}
 		if err != nil || exception != nil || global.ObjectID == "" {
 			return errors.New("page execution context is unavailable")
 		}
@@ -85,7 +97,13 @@ func (e *pageExecutor) RunJSON(
 			WithAwaitPromise(true).
 			WithReturnByValue(true).
 			Do(actionCtx)
+		if isPageTransitionError(err) {
+			return errPageTransition
+		}
 		if err != nil {
+			if actionCtx.Err() != nil {
+				return actionCtx.Err()
+			}
 			return errors.New("page program failed")
 		}
 		if exception != nil {
@@ -101,10 +119,28 @@ func (e *pageExecutor) RunJSON(
 		return nil
 	}))
 	if err != nil {
+		if callCtx.Err() != nil {
+			return callCtx.Err()
+		}
 		return err
 	}
 	*result = raw
 	return nil
+}
+
+func isPageTransitionError(err error) bool {
+	var protocolError *cdproto.Error
+	if !errors.As(err, &protocolError) || protocolError.Code != -32000 {
+		return false
+	}
+	switch protocolError.Message {
+	case "Inspected target navigated or closed",
+		"Cannot find context with specified id",
+		"Execution context was destroyed.":
+		return true
+	default:
+		return false
+	}
 }
 
 func originAllowed(origin string, allowed []string) bool {

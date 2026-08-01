@@ -3,6 +3,7 @@ package cdp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,61 @@ import (
 
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
 )
+
+func TestWaitForAuthenticationRetriesPageNavigation(t *testing.T) {
+	browserPath, err := FindBrowser("")
+	if err != nil {
+		t.Skipf("supported Chrome/Chromium is unavailable: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/html")
+		if request.URL.Path == "/start" {
+			_, _ = writer.Write([]byte(`<!doctype html><body>start<script>
+				setTimeout(() => location.href = "/settled", 300);
+			</script>`))
+			return
+		}
+		_, _ = writer.Write([]byte(`<!doctype html><body>settled`))
+	}))
+	defer server.Close()
+
+	profileDir := filepath.Join(t.TempDir(), "chrome")
+	if err := os.Mkdir(profileDir, 0o700); err != nil {
+		t.Fatalf("Mkdir(profile): %v", err)
+	}
+	factory := NewFactory(Config{BrowserPath: browserPath})
+	factory.programs[programAuthProbe] = program{
+		source: `async function() {
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			return {state: "no-session"};
+		}`,
+		maxResultBytes: 1024,
+		allowedOrigins: []string{server.URL},
+	}
+
+	openCtx, openCancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer openCancel()
+	browser, err := factory.Open(openCtx, session.OpenSpec{
+		SessionRef: "s_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ProfileDir: profileDir,
+		Mode:       session.OpenCommitted,
+		StartURL:   server.URL + "/start",
+		StartupCap: 10 * time.Second,
+		CleanupCap: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer browser.Close(context.Background())
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer waitCancel()
+	_, err = browser.WaitForAuthentication(waitCtx, make([]byte, 32))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitForAuthentication() error = %v, want context deadline", err)
+	}
+}
 
 func TestPageExecutorKeepsCredentialsInsideSyntheticBFFAndGraphQLFixture(t *testing.T) {
 	browserPath, err := FindBrowser("")
