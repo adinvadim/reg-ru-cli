@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -434,25 +435,284 @@ func TestExecutorClassifiesContractDriftAmbiguousMutationAndWaitTimeout(t *testi
 	})
 }
 
-func TestLegacyBooleanVariantsStayBooleanInNormalizedOutput(t *testing.T) {
-	var server Server
-	if err := json.Unmarshal([]byte(`{
-		"id":42,
-		"backups_enabled":"1",
-		"service_id":99,
-		"image_id":7
-	}`), &server); err != nil {
-		t.Fatalf("decode legacy bool: %v", err)
-	}
-	if !bool(server.BackupsEnabled) {
-		t.Fatal("backups_enabled was not normalized")
-	}
-	encoded, err := json.Marshal(server)
+func TestExecutorBackupStatusReadsNormalizedStateWithoutMutation(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{
+			"reglet":{
+				"id":42,
+				"name":"fixture",
+				"status":"active",
+				"backups_enabled":"true",
+				"last_backup_date":null
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	executor := NewExecutor(ExecutorOptions{BaseURL: server.URL}, nil)
+	operation := operationWithToken("vps.backup.status")
+	operation.Arguments = []string{"42"}
+	result, err := executor.Execute(context.Background(), operation)
 	if err != nil {
-		t.Fatalf("encode normalized server: %v", err)
+		t.Fatalf("Execute status: %v", err)
 	}
-	if !strings.Contains(string(encoded), `"backups_enabled":true`) {
-		t.Fatalf("normalized JSON = %s", encoded)
+	if len(requests) != 1 || requests[0] != "GET /v1/reglets/42" {
+		t.Fatalf("requests = %v", requests)
+	}
+	if result.Human != "CloudVPS backups for 42: enabled; last backup: not reported" {
+		t.Errorf("human = %q", result.Human)
+	}
+	if len(result.Plain) != 1 || result.Plain[0] != "42\ttrue\t" {
+		t.Errorf("plain = %q", result.Plain)
+	}
+	encoded, err := json.Marshal(result.Data)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+	if string(encoded) != `{"backups_enabled":true,"last_backup_date":null,"server_id":"42"}` {
+		t.Errorf("JSON data = %s", encoded)
+	}
+}
+
+func TestRenderServerSurfacesBackupStateWithoutChangingPlainContract(t *testing.T) {
+	backupsEnabled := Boolish(true)
+	lastBackup := "2026-08-01T00:00:00Z"
+	result := renderServer(Server{
+		ID:             "42",
+		Name:           "fixture",
+		Status:         "active",
+		Region:         "msk",
+		BackupsEnabled: &backupsEnabled,
+		LastBackupDate: &lastBackup,
+	})
+	if !strings.Contains(result.Human, "backups enabled") ||
+		!strings.Contains(result.Human, lastBackup) {
+		t.Errorf("human = %q", result.Human)
+	}
+	if len(result.Plain) != 1 || strings.Count(result.Plain[0], "\t") != 4 {
+		t.Errorf("plain contract changed: %q", result.Plain)
+	}
+}
+
+func TestRenderServerJSONPreservesNullableBackupDate(t *testing.T) {
+	backupsEnabled := Boolish(false)
+	result := renderServer(Server{
+		ID:             "42",
+		BackupsEnabled: &backupsEnabled,
+	})
+	encoded, err := json.Marshal(result.Data)
+	if err != nil {
+		t.Fatalf("encode server result: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"backups_enabled":false`) ||
+		!strings.Contains(string(encoded), `"last_backup_date":null`) {
+		t.Fatalf("server JSON = %s", encoded)
+	}
+}
+
+func TestBackupActionWaitsThenVerifiesProviderState(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.Method + " " + request.URL.Path {
+		case "POST /v1/reglets/42/actions":
+			_, _ = io.WriteString(writer, `{"action":{"id":9,"status":"in_progress","type":"enable_backups","resource_id":42}}`)
+		case "GET /v1/actions/9":
+			_, _ = io.WriteString(writer, `{"action":{"id":9,"status":"completed","type":"enable_backups","resource_id":42}}`)
+		case "GET /v1/reglets/42":
+			_, _ = io.WriteString(writer, `{"reglet":{"id":42,"backups_enabled":1,"last_backup_date":"2026-08-01"}}`)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := testClient(
+		t,
+		server.URL,
+		func(context.Context, time.Duration) error { return nil },
+		func(delay time.Duration) time.Duration { return delay },
+	)
+	defer client.Close()
+	executor := NewExecutor(ExecutorOptions{}, nil)
+	result, err := executor.execute(context.Background(), client, cli.Operation{
+		Action:      "vps.backup.enable",
+		Arguments:   []string{"42"},
+		WaitTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("execute backup enable: %v", err)
+	}
+	wantRequests := []string{
+		"POST /v1/reglets/42/actions",
+		"GET /v1/actions/9",
+		"GET /v1/reglets/42",
+	}
+	if strings.Join(requests, "\n") != strings.Join(wantRequests, "\n") {
+		t.Fatalf("requests = %v, want %v", requests, wantRequests)
+	}
+	if !strings.Contains(result.Human, "enabled") || !strings.Contains(result.Human, "action 9 completed") {
+		t.Errorf("human = %q", result.Human)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["backups_enabled"] != true {
+		t.Errorf("data = %#v", result.Data)
+	}
+	if len(result.Plain) != 1 || result.Plain[0] != "9\tcompleted\tenable_backups\t42" {
+		t.Errorf("plain action contract changed: %q", result.Plain)
+	}
+}
+
+func TestBackupDisableVerifiesDisabledProviderState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.Method + " " + request.URL.Path {
+		case "POST /v1/reglets/42/actions":
+			_, _ = io.WriteString(writer, `{"action":{"id":10,"status":"completed","type":"disable_backups","resource_id":42}}`)
+		case "GET /v1/reglets/42":
+			_, _ = io.WriteString(writer, `{"reglet":{"id":42,"backups_enabled":0,"last_backup_date":null}}`)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	executor := NewExecutor(ExecutorOptions{BaseURL: server.URL}, nil)
+	operation := operationWithToken("vps.backup.disable")
+	operation.Arguments = []string{"42"}
+	result, err := executor.Execute(context.Background(), operation)
+	if err != nil {
+		t.Fatalf("Execute disable: %v", err)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["backups_enabled"] != false {
+		t.Errorf("data = %#v", result.Data)
+	}
+	if !strings.Contains(result.Human, "disabled") {
+		t.Errorf("human = %q", result.Human)
+	}
+}
+
+func TestBackupActionFailsClosedWhenPostconditionCannotBeVerified(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		serverBody string
+	}{
+		{name: "mismatch", serverBody: `{"reglet":{"id":42,"backups_enabled":false}}`},
+		{name: "undecodable", serverBody: `{"reglet":{"id":42,"backups_enabled":"unexpected"}}`},
+		{name: "missing", serverBody: `{"reglet":{"id":42}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				switch request.Method + " " + request.URL.Path {
+				case "POST /v1/reglets/42/actions":
+					_, _ = io.WriteString(writer, `{"action":{"id":9,"status":"completed","type":"enable_backups","resource_id":42}}`)
+				case "GET /v1/reglets/42":
+					_, _ = io.WriteString(writer, test.serverBody)
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			executor := NewExecutor(ExecutorOptions{BaseURL: server.URL}, nil)
+			operation := operationWithToken("vps.backup.enable")
+			operation.Arguments = []string{"42"}
+			_, err := executor.Execute(context.Background(), operation)
+			var cliErr *cli.CLIError
+			if !errors.As(err, &cliErr) || cliErr.Code != cli.CodeOutcomeUnknown {
+				t.Fatalf("error = %#v", err)
+			}
+		})
+	}
+}
+
+func TestBackupStatusReportsContractDriftForMissingOrUnknownBoolean(t *testing.T) {
+	for _, body := range []string{
+		`{"reglet":{"id":42}}`,
+		`{"reglet":{"id":42,"backups_enabled":"unexpected"}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(writer, body)
+			}))
+			defer server.Close()
+
+			executor := NewExecutor(ExecutorOptions{BaseURL: server.URL}, nil)
+			operation := operationWithToken("vps.backup.status")
+			operation.Arguments = []string{"42"}
+			_, err := executor.Execute(context.Background(), operation)
+			var cliErr *cli.CLIError
+			if !errors.As(err, &cliErr) || cliErr.Code != cli.CodeProviderContract {
+				t.Fatalf("error = %#v", err)
+			}
+		})
+	}
+}
+
+func TestBackupActionNoWaitDoesNotReadProviderState(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"action":{"id":9,"status":"in_progress","type":"disable_backups","resource_id":42}}`)
+	}))
+	defer server.Close()
+
+	executor := NewExecutor(ExecutorOptions{BaseURL: server.URL}, nil)
+	operation := operationWithToken("vps.backup.disable")
+	operation.Arguments = []string{"42"}
+	operation.NoWait = true
+	result, err := executor.Execute(context.Background(), operation)
+	if err != nil {
+		t.Fatalf("Execute no-wait: %v", err)
+	}
+	if len(requests) != 1 || requests[0] != "POST /v1/reglets/42/actions" {
+		t.Fatalf("requests = %v", requests)
+	}
+	if !strings.Contains(result.Human, "action 9: in-progress") {
+		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestLegacyBooleanVariantsStayBooleanInNormalizedOutput(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		wire     string
+		expected bool
+	}{
+		{name: "boolean true", wire: `true`, expected: true},
+		{name: "boolean false", wire: `false`, expected: false},
+		{name: "numeric one", wire: `1`, expected: true},
+		{name: "numeric zero", wire: `0`, expected: false},
+		{name: "string one", wire: `"1"`, expected: true},
+		{name: "string zero", wire: `"0"`, expected: false},
+		{name: "string true", wire: `"true"`, expected: true},
+		{name: "string false", wire: `"false"`, expected: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var value Boolish
+			if err := json.Unmarshal([]byte(test.wire), &value); err != nil {
+				t.Fatalf("decode legacy bool: %v", err)
+			}
+			if bool(value) != test.expected {
+				t.Fatalf("value = %t, want %t", value, test.expected)
+			}
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				t.Fatalf("encode normalized bool: %v", err)
+			}
+			expectedJSON := strconv.FormatBool(test.expected)
+			if string(encoded) != expectedJSON {
+				t.Fatalf("normalized JSON = %s, want %s", encoded, expectedJSON)
+			}
+		})
 	}
 }
 

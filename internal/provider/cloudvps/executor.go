@@ -79,6 +79,12 @@ func (e *Executor) execute(
 	case "vps.show":
 		server, err := client.GetServer(ctx, argument(operation, 0))
 		return renderServer(server), err
+	case "vps.backup.status":
+		server, err := client.GetServer(ctx, argument(operation, 0))
+		if err != nil {
+			return cli.Result{}, err
+		}
+		return renderBackupStatus(server), nil
 	case "vps.create":
 		floatingIP := boolParameter(operation, "floating-ip", true)
 		mutation, err := client.CreateServer(ctx, CreateServerRequest{
@@ -131,11 +137,12 @@ func (e *Executor) execute(
 			operation.WaitTimeout,
 		)
 		return renderServerMutation("renamed", mutation), err
-	case "vps.start", "vps.stop", "vps.reboot", "vps.password-reset",
-		"vps.backup.enable", "vps.backup.disable":
+	case "vps.start", "vps.stop", "vps.reboot", "vps.password-reset":
 		return executeServerAction(ctx, client, operation, ServerActionRequest{
 			Type: parameter(operation, "type"),
 		})
+	case "vps.backup.enable", "vps.backup.disable":
+		return executeBackupAction(ctx, client, operation)
 	case "vps.rebuild":
 		return executeServerAction(ctx, client, operation, ServerActionRequest{
 			Type:  "rebuild",
@@ -293,25 +300,80 @@ func executeServerAction(
 	operation cli.Operation,
 	request ServerActionRequest,
 ) (cli.Result, error) {
-	action, err := client.ServerAction(ctx, argument(operation, 0), request)
+	action, err := completeServerAction(ctx, client, operation, request)
 	if err != nil {
 		return cli.Result{}, err
 	}
+	return renderAction(action), nil
+}
+
+func executeBackupAction(
+	ctx context.Context,
+	client *Client,
+	operation cli.Operation,
+) (cli.Result, error) {
+	var enabled bool
+	var actionType string
+	switch operation.Action {
+	case "vps.backup.enable":
+		enabled = true
+		actionType = "enable_backups"
+	case "vps.backup.disable":
+		actionType = "disable_backups"
+	default:
+		return cli.Result{}, &ContractError{
+			Message: "CloudVPS backup action is not supported",
+		}
+	}
+	action, err := completeServerAction(ctx, client, operation, ServerActionRequest{
+		Type: actionType,
+	})
+	if err != nil {
+		return cli.Result{}, err
+	}
+	if terminal, succeeded := action.Terminal(); terminal && !succeeded {
+		return cli.Result{}, &ActionFailedError{Action: action}
+	}
+	if action.Pending() {
+		return renderAction(action), nil
+	}
+	server, err := client.GetServer(ctx, argument(operation, 0))
+	if err != nil {
+		return cli.Result{}, &AmbiguousMutationError{Cause: err}
+	}
+	if backupEnabled(server) != enabled {
+		return cli.Result{}, &AmbiguousMutationError{
+			Cause: &ContractError{Message: "CloudVPS backup state does not match the completed action"},
+		}
+	}
+	return renderBackupAction(action, server), nil
+}
+
+func completeServerAction(
+	ctx context.Context,
+	client *Client,
+	operation cli.Operation,
+	request ServerActionRequest,
+) (Action, error) {
+	action, err := client.ServerAction(ctx, argument(operation, 0), request)
+	if err != nil {
+		return Action{}, err
+	}
 	terminal, _ := action.Terminal()
 	if !terminal && !action.Pending() {
-		return cli.Result{}, &ContractError{
+		return action, &ContractError{
 			Message: "CloudVPS mutation returned an unknown action status",
 		}
 	}
 	if action.Pending() && action.ID == "" {
-		return cli.Result{}, &AmbiguousMutationError{
+		return action, &AmbiguousMutationError{
 			Cause: &ContractError{Message: "CloudVPS pending action is missing an identifier"},
 		}
 	}
 	if !operation.NoWait && !terminal {
 		action, err = waitAction(ctx, client, operation, string(action.ID))
 	}
-	return renderAction(action), err
+	return action, err
 }
 
 func waitActions(
@@ -541,7 +603,14 @@ func renderServers(servers []Server) cli.Result {
 
 func renderServer(server Server) cli.Result {
 	return cli.Result{
-		Human: fmt.Sprintf("CloudVPS %s: %s (%s)", server.ID, server.Name, server.Status),
+		Human: fmt.Sprintf(
+			"CloudVPS %s: %s (%s); backups %s; last backup: %s",
+			server.ID,
+			server.Name,
+			server.Status,
+			backupState(server),
+			lastBackupDate(server),
+		),
 		Plain: []string{fmt.Sprintf(
 			"%s\t%s\t%s\t%s\t%s",
 			plain(string(server.ID)),
@@ -552,6 +621,68 @@ func renderServer(server Server) cli.Result {
 		)},
 		Data: map[string]any{"server": server},
 	}
+}
+
+func renderBackupStatus(server Server) cli.Result {
+	return cli.Result{
+		Human: backupStatusHuman(server),
+		Plain: []string{fmt.Sprintf(
+			"%s\t%t\t%s",
+			plain(string(server.ID)),
+			backupEnabled(server),
+			plain(value(server.LastBackupDate)),
+		)},
+		Data: backupStatusData(server),
+	}
+}
+
+func renderBackupAction(action Action, server Server) cli.Result {
+	human := backupStatusHuman(server)
+	if action.ID != "" {
+		human = fmt.Sprintf("%s; action %s %s", human, action.ID, action.Status)
+	}
+	data := backupStatusData(server)
+	data["action"] = action
+	return cli.Result{
+		Human: human,
+		Plain: []string{actionLine(action)},
+		Data:  data,
+	}
+}
+
+func backupStatusData(server Server) map[string]any {
+	return map[string]any{
+		"server_id":        server.ID,
+		"backups_enabled":  backupEnabled(server),
+		"last_backup_date": server.LastBackupDate,
+	}
+}
+
+func backupStatusHuman(server Server) string {
+	return fmt.Sprintf(
+		"CloudVPS backups for %s: %s; last backup: %s",
+		server.ID,
+		backupState(server),
+		lastBackupDate(server),
+	)
+}
+
+func backupEnabled(server Server) bool {
+	return server.BackupsEnabled != nil && bool(*server.BackupsEnabled)
+}
+
+func backupState(server Server) string {
+	if backupEnabled(server) {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func lastBackupDate(server Server) string {
+	if server.LastBackupDate == nil {
+		return "not reported"
+	}
+	return *server.LastBackupDate
 }
 
 func renderServerMutation(status string, mutation Mutation[Server]) cli.Result {
@@ -573,15 +704,19 @@ func renderServerMutation(status string, mutation Mutation[Server]) cli.Result {
 func renderAction(action Action) cli.Result {
 	return cli.Result{
 		Human: fmt.Sprintf("CloudVPS action %s: %s", action.ID, action.Status),
-		Plain: []string{fmt.Sprintf(
-			"%s\t%s\t%s\t%s",
-			plain(string(action.ID)),
-			plain(action.Status),
-			plain(action.Type),
-			plain(string(action.ResourceID)),
-		)},
-		Data: map[string]any{"action": action},
+		Plain: []string{actionLine(action)},
+		Data:  map[string]any{"action": action},
 	}
+}
+
+func actionLine(action Action) string {
+	return fmt.Sprintf(
+		"%s\t%s\t%s\t%s",
+		plain(string(action.ID)),
+		plain(action.Status),
+		plain(action.Type),
+		plain(string(action.ResourceID)),
+	)
 }
 
 func renderActions(message string, actions []Action) cli.Result {

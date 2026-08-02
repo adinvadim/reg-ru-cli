@@ -13,18 +13,19 @@ import (
 )
 
 type commandSpec struct {
-	use         string
-	aliases     []string
-	short       string
-	capability  string
-	action      string
-	mutating    bool
-	interactive bool
-	args        cobra.PositionalArgs
-	timeout     func() time.Duration
-	parameters  func() map[string][]string
-	input       func() InputResolver
-	noWait      func() bool
+	use          string
+	aliases      []string
+	short        string
+	capability   string
+	action       string
+	mutating     bool
+	interactive  bool
+	args         cobra.PositionalArgs
+	timeout      func() time.Duration
+	parameters   func() map[string][]string
+	input        func() InputResolver
+	noWait       func() bool
+	confirmation string
 }
 
 func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
@@ -73,7 +74,7 @@ func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
 				operation.NoWait = spec.noWait()
 			}
 			return runWithTimeout(cmd.Context(), timeout, func(ctx context.Context) error {
-				return app.executeOperation(ctx, operation, spec.mutating)
+				return app.executeOperation(ctx, operation, spec.mutating, spec.confirmation)
 			})
 		},
 	}
@@ -291,7 +292,23 @@ func newSimpleVPSAction(
 	providerType string,
 	noWait *bool,
 ) *cobra.Command {
-	return newOperationCommand(app, commandSpec{
+	return newOperationCommand(app, simpleVPSActionSpec(
+		use,
+		short,
+		action,
+		providerType,
+		noWait,
+	))
+}
+
+func simpleVPSActionSpec(
+	use string,
+	short string,
+	action string,
+	providerType string,
+	noWait *bool,
+) commandSpec {
+	spec := commandSpec{
 		use:        use,
 		short:      short,
 		capability: "cloudvps.lifecycle",
@@ -299,10 +316,13 @@ func newSimpleVPSAction(
 		mutating:   true,
 		args:       positiveDecimalArgs(1),
 		noWait:     func() bool { return *noWait },
-		parameters: func() map[string][]string {
+	}
+	if providerType != "" {
+		spec.parameters = func() map[string][]string {
 			return operationParameters("type", providerType)
-		},
-	})
+		}
+	}
+	return spec
 }
 
 func newRebuildVPSCommand(app *appRuntime, noWait *bool) *cobra.Command {
@@ -643,11 +663,33 @@ func newVPSSnapshotCommand(app *appRuntime, noWait *bool) *cobra.Command {
 }
 
 func newVPSBackupCommand(app *appRuntime, noWait *bool) *cobra.Command {
+	enable := simpleVPSActionSpec(
+		"enable <id>",
+		"Enable CloudVPS backups",
+		"vps.backup.enable",
+		"",
+		noWait,
+	)
+	disable := simpleVPSActionSpec(
+		"disable <id>",
+		"Disable CloudVPS backups",
+		"vps.backup.disable",
+		"",
+		noWait,
+	)
+	disable.confirmation = "REG.RU retains existing non-configurable backup copies for only three calendar days after disabling backups."
 	return newGroupCommand(
 		"backup",
 		"Manage CloudVPS backups",
-		newSimpleVPSAction(app, "enable <id>", "Enable CloudVPS backups", "vps.backup.enable", "enable_backups", noWait),
-		newSimpleVPSAction(app, "disable <id>", "Disable CloudVPS backups", "vps.backup.disable", "disable_backups", noWait),
+		newOperationCommand(app, readSpec(
+			"status <id>",
+			"Show CloudVPS backup status",
+			"cloudvps.lifecycle",
+			"vps.backup.status",
+			positiveDecimalArgs(1),
+		)),
+		newOperationCommand(app, enable),
+		newOperationCommand(app, disable),
 		newOperationCommand(app, commandSpec{
 			use:        "restore <server-id> <backup-image-id>",
 			short:      "Restore a selected CloudVPS backup image",

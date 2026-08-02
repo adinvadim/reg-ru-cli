@@ -935,6 +935,61 @@ func TestCloudVPSCommandTreeExposesTicketSurface(t *testing.T) {
 	}
 }
 
+func TestCloudVPSBackupStatusIsReadOnlyAndVisible(t *testing.T) {
+	help := runCLI(t, nil, []string{"vps", "backup", "--help"}, "", false, nil, nil)
+	if help.exitCode != ExitOK || !strings.Contains(help.stdout, "status") {
+		t.Fatalf("backup help exit code = %d; stdout=%q stderr=%q", help.exitCode, help.stdout, help.stderr)
+	}
+
+	var received Operation
+	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {
+		received = operation
+		return Result{Human: "status"}, nil
+	})
+	run := runCLI(
+		t,
+		nil,
+		[]string{"--account", "personal", "vps", "backup", "status", "42"},
+		"",
+		false,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitOK {
+		t.Fatalf("exit code = %d; stderr=%q", run.exitCode, run.stderr)
+	}
+	if received.Action != "vps.backup.status" || len(received.Arguments) != 1 || received.Arguments[0] != "42" {
+		t.Fatalf("operation = %+v", received)
+	}
+	if run.stderr != "" {
+		t.Errorf("read-only status prompted unexpectedly: %q", run.stderr)
+	}
+}
+
+func TestCloudVPSBackupDisableConfirmationExplainsRetention(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, _ Operation) (Result, error) {
+		calls++
+		return Result{Human: "disabled"}, nil
+	})
+	run := runCLI(
+		t,
+		nil,
+		[]string{"--account", "personal", "vps", "backup", "disable", "42"},
+		"n\n",
+		true,
+		nil,
+		executor,
+	)
+	if run.exitCode != ExitInteractionRequired || calls != 0 {
+		t.Fatalf("exit code = %d, calls = %d; stderr=%q", run.exitCode, calls, run.stderr)
+	}
+	if !strings.Contains(run.stderr, "three calendar days") ||
+		!strings.Contains(run.stderr, "Confirm vps.backup.disable?") {
+		t.Errorf("confirmation did not explain retention: %q", run.stderr)
+	}
+}
+
 func TestBillingCommandTreeExposesDocumentedAndGatedSurface(t *testing.T) {
 	run := runCLI(t, nil, []string{"billing", "--help"}, "", false, nil, nil)
 	if run.exitCode != ExitOK {

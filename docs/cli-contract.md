@@ -25,7 +25,7 @@ regru vps action show|wait
 regru vps ip list|show|add|ptr|remove
 regru vps ssh-key list|add|rename|remove
 regru vps snapshot list|create|remove
-regru vps backup enable|disable|restore
+regru vps backup status|enable|disable|restore
 regru vps plan list|show
 regru vps image list|show
 regru s3 service show
@@ -227,7 +227,11 @@ JSON error:
 ```
 
 Plain success is one stable record per line. Plain errors use
-`code<TAB>message` on stderr.
+`code<TAB>message` on stderr. `vps backup status <server-id> --plain` emits
+`server-id<TAB>backups-enabled<TAB>last-backup-date`; the enabled field is
+`true` or `false`, and the date field is empty when the provider returns null.
+The established five-field `vps get --plain` record is not extended with backup
+fields.
 
 ## Exit codes
 

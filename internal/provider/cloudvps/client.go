@@ -260,6 +260,11 @@ func (c *Client) GetServer(ctx context.Context, id string) (Server, error) {
 	if err := decodeOneOf(envelope, []string{"reglet"}, &server); err != nil {
 		return Server{}, err
 	}
+	if server.BackupsEnabled == nil {
+		return Server{}, &ContractError{
+			Message: "CloudVPS server response is missing backups_enabled",
+		}
+	}
 	return server, nil
 }
 

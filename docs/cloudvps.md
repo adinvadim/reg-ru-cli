@@ -23,7 +23,7 @@ regru vps action show|wait <action-id>
 regru vps ip list|show|add|ptr|remove
 regru vps ssh-key list|add|rename|remove
 regru vps snapshot list|create|remove
-regru vps backup enable|disable|restore
+regru vps backup status|enable|disable|restore
 regru vps plan list|show
 regru vps image list|show
 ```
@@ -31,6 +31,12 @@ regru vps image list|show
 Use command help for the operation-specific flags. `ip show` deliberately
 lists documented addresses and matches the requested address locally because
 the current OpenAPI does not publish a single-address endpoint.
+
+`vps backup status <server-id>` reads the published, non-configurable backup
+switch without sending a mutation. Human and JSON `vps get` output also surface
+this state, while its existing five-field plain record remains unchanged.
+`backup status --plain` provides the stable machine-readable record documented
+in the [CLI contract](cli-contract.md#streams-and-output-modes).
 
 ## Waiting and mutation safety
 
@@ -43,6 +49,17 @@ request; `--wait-timeout` bounds the complete action sequence and defaults to
 10 minutes. `--no-wait` returns the accepted provider action ID without
 polling. A timed-out wait does not cancel or mark the provider action failed;
 resume it with `vps action wait`.
+
+After an enable or disable action reaches terminal success, the CLI reads the
+server once and verifies the requested `backups_enabled` state. Waited success
+output reports that verified state in human and JSON modes while retaining the
+existing action record in plain mode. A failed, undecodable, or mismatched
+verification returns `outcome_unknown` rather than reporting success, and the
+mutation is never replayed. `--no-wait` returns a
+pending accepted action without attempting this postcondition read. The disable
+confirmation notes that REG.RU currently retains existing copies from this
+non-configurable backup for only three calendar days; it deliberately does not
+quote a price.
 
 Reads may retry transient transport, throttling, and server failures with
 bounded jitter. Mutations are sent exactly once. A transport failure after a

@@ -42,11 +42,20 @@ func (id ID) MarshalJSON() ([]byte, error) {
 type Boolish bool
 
 func (value *Boolish) UnmarshalJSON(data []byte) error {
-	switch string(bytes.TrimSpace(data)) {
-	case "true", "1", `"1"`:
+	data = bytes.TrimSpace(data)
+	normalized := string(data)
+	if len(data) > 0 && data[0] == '"' {
+		var legacy string
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return fmt.Errorf("decode provider boolean")
+		}
+		normalized = strings.ToLower(strings.TrimSpace(legacy))
+	}
+	switch normalized {
+	case "true", "1":
 		*value = true
 		return nil
-	case "false", "0", `"0"`:
+	case "false", "0":
 		*value = false
 		return nil
 	default:
@@ -59,25 +68,25 @@ func (value Boolish) MarshalJSON() ([]byte, error) {
 }
 
 type Server struct {
-	ID              ID      `json:"id"`
-	Name            string  `json:"name"`
-	Status          string  `json:"status"`
-	SubStatus       *string `json:"sub_status,omitempty"`
-	Region          string  `json:"region_slug"`
-	SizeSlug        string  `json:"size_slug"`
-	ImageID         ID      `json:"image_id"`
-	IP              *string `json:"ip,omitempty"`
-	IPv6            *string `json:"ipv6,omitempty"`
-	PTR             *string `json:"ptr,omitempty"`
-	BackupsEnabled  Boolish `json:"backups_enabled"`
-	LastBackupDate  *string `json:"last_backup_date,omitempty"`
-	CreatedAt       string  `json:"created_at"`
-	CPUs            int     `json:"vcpus"`
-	Memory          int     `json:"memory"`
-	Disk            int     `json:"disk"`
-	DiskUsage       float64 `json:"disk_usage,omitempty"`
-	ServiceID       ID      `json:"service_id"`
-	PrivateNetworks []ID    `json:"vpcs,omitempty"`
+	ID              ID       `json:"id"`
+	Name            string   `json:"name"`
+	Status          string   `json:"status"`
+	SubStatus       *string  `json:"sub_status,omitempty"`
+	Region          string   `json:"region_slug"`
+	SizeSlug        string   `json:"size_slug"`
+	ImageID         ID       `json:"image_id"`
+	IP              *string  `json:"ip,omitempty"`
+	IPv6            *string  `json:"ipv6,omitempty"`
+	PTR             *string  `json:"ptr,omitempty"`
+	BackupsEnabled  *Boolish `json:"backups_enabled"`
+	LastBackupDate  *string  `json:"last_backup_date"`
+	CreatedAt       string   `json:"created_at"`
+	CPUs            int      `json:"vcpus"`
+	Memory          int      `json:"memory"`
+	Disk            int      `json:"disk"`
+	DiskUsage       float64  `json:"disk_usage,omitempty"`
+	ServiceID       ID       `json:"service_id"`
+	PrivateNetworks []ID     `json:"vpcs,omitempty"`
 }
 
 type CreateServerRequest struct {

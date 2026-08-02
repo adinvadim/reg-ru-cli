@@ -201,6 +201,10 @@ func (r *appRuntime) sanitizeError(cliErr *CLIError) *CLIError {
 }
 
 func (r *appRuntime) confirm(action string) error {
+	return r.confirmWithMessage(action, "")
+}
+
+func (r *appRuntime) confirmWithMessage(action, message string) error {
 	if r.flags.force || r.flags.dryRun {
 		return nil
 	}
@@ -208,6 +212,11 @@ func (r *appRuntime) confirm(action string) error {
 		return ConfirmationRequired(action)
 	}
 
+	if message != "" {
+		if _, err := fmt.Fprintln(r.errOut, message); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprintf(r.errOut, "Confirm %s? [y/N] ", action); err != nil {
 		return err
 	}
@@ -227,6 +236,7 @@ func (r *appRuntime) executeOperation(
 	ctx context.Context,
 	operation Operation,
 	mutating bool,
+	confirmation string,
 ) error {
 	if err := r.requireAccount(); err != nil {
 		return err
@@ -253,7 +263,7 @@ func (r *appRuntime) executeOperation(
 	}
 
 	if mutating {
-		if err := r.confirm(operation.Action); err != nil {
+		if err := r.confirmWithMessage(operation.Action, confirmation); err != nil {
 			return err
 		}
 	}
