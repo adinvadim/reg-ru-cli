@@ -13,6 +13,7 @@ import (
 const (
 	programAuthProbe       session.ProgramID = "portal.auth.probe"
 	programLogout          session.ProgramID = "portal.auth.logout"
+	programREGAPIIPSync    session.ProgramID = "portal.auth.regapi-ip-sync"
 	programS3Inventory     session.ProgramID = "portal.s3.inventory"
 	programS3Mutation      session.ProgramID = "portal.s3.mutation"
 	programS3Credentials   session.ProgramID = "portal.s3.credentials"
@@ -37,6 +38,11 @@ func productionPrograms() map[session.ProgramID]program {
 		},
 		programLogout: {
 			source:         logoutProgram,
+			maxResultBytes: 1024,
+			allowedOrigins: firstPartyOrigins,
+		},
+		programREGAPIIPSync: {
+			source:         regAPIIPSyncProgram,
 			maxResultBytes: 1024,
 			allowedOrigins: firstPartyOrigins,
 		},

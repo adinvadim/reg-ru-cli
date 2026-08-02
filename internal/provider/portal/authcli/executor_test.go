@@ -159,6 +159,142 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 	}
 }
 
+func TestAuthLoginSynchronizesREGAPIIPWithoutExposingAddress(t *testing.T) {
+	t.Parallel()
+
+	const alias = "work"
+	const profileID = "p_eeeeeeeeeeeeeeeeeeeeeeeeee"
+	const currentIP = "203.0.113.42"
+	profiles := profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts: map[string]profile.Account{
+			alias: {ID: profileID, Provider: "reg.ru"},
+		},
+	})
+	factory := &lifecycleBrowserFactory{
+		digest:        bytes.Repeat([]byte{0x51}, session.IdentityDigestBytes),
+		providerLogin: "portal-login@example.test",
+		programResult: json.RawMessage(`{"state":"added"}`),
+	}
+	broker := session.NewBroker(
+		session.NewFileStore(t.TempDir()),
+		factory,
+		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
+	)
+	executor := authcli.New(profiles, broker, nil)
+
+	login := executeCLI(t, profiles, executor,
+		"--json", "--force", "--account", alias,
+		"auth", "login", "--login-timeout", "1m",
+	)
+	if login.exitCode != cli.ExitOK {
+		t.Fatalf("login exit = %d; stderr=%s", login.exitCode, login.stderr)
+	}
+	if got := factory.programCallCount("portal.auth.regapi-ip-sync"); got != 1 {
+		t.Fatalf("REG.API IP sync calls = %d, want 1", got)
+	}
+	for _, output := range []string{login.stdout, login.stderr} {
+		if strings.Contains(output, currentIP) {
+			t.Fatalf("auth login exposed the synchronized IP: %q", output)
+		}
+	}
+}
+
+func TestAuthRefreshSynchronizesREGAPIIP(t *testing.T) {
+	t.Parallel()
+
+	const alias = "work"
+	const profileID = "p_ffffffffffffffffffffffffff"
+	profiles := profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts: map[string]profile.Account{
+			alias: {ID: profileID, Provider: "reg.ru"},
+		},
+	})
+	factory := &lifecycleBrowserFactory{
+		digest:        bytes.Repeat([]byte{0x61}, session.IdentityDigestBytes),
+		providerLogin: "portal-login@example.test",
+		programResult: json.RawMessage(`{"state":"unchanged"}`),
+	}
+	broker := session.NewBroker(
+		session.NewFileStore(t.TempDir()),
+		factory,
+		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
+	)
+	executor := authcli.New(profiles, broker, nil)
+
+	login := executeCLI(t, profiles, executor,
+		"--json", "--force", "--account", alias,
+		"auth", "login", "--login-timeout", "1m",
+	)
+	if login.exitCode != cli.ExitOK {
+		t.Fatalf("login setup exit = %d; stderr=%s", login.exitCode, login.stderr)
+	}
+	factory.programCalls = nil
+
+	refresh := executeCLI(t, profiles, executor,
+		"--json", "--force", "--account", alias,
+		"auth", "refresh",
+	)
+	if refresh.exitCode != cli.ExitOK {
+		t.Fatalf("refresh exit = %d; stderr=%s", refresh.exitCode, refresh.stderr)
+	}
+	if got := factory.programCallCount("portal.auth.regapi-ip-sync"); got != 1 {
+		t.Fatalf("REG.API IP sync calls = %d, want 1", got)
+	}
+}
+
+func TestAuthIPSyncFailureIsOnlyARedactedWarning(t *testing.T) {
+	t.Parallel()
+
+	const alias = "work"
+	const profileID = "p_77777777777777777777777777"
+	const privateDetail = "203.0.113.55"
+	profiles := profile.NewMemoryRepository(profile.Config{
+		SchemaVersion: profile.SchemaVersion,
+		Accounts: map[string]profile.Account{
+			alias: {ID: profileID, Provider: "reg.ru"},
+		},
+	})
+	factory := &lifecycleBrowserFactory{
+		digest:        bytes.Repeat([]byte{0x71}, session.IdentityDigestBytes),
+		providerLogin: "portal-login@example.test",
+		programErr:    errors.New("provider rejected " + privateDetail),
+	}
+	broker := session.NewBroker(
+		session.NewFileStore(t.TempDir()),
+		factory,
+		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
+	)
+	executor := authcli.New(profiles, broker, nil)
+
+	login := executeCLI(t, profiles, executor,
+		"--json", "--force", "--account", alias,
+		"auth", "login", "--login-timeout", "1m",
+	)
+	if login.exitCode != cli.ExitOK {
+		t.Fatalf("login exit = %d; stderr=%s", login.exitCode, login.stderr)
+	}
+	var envelope struct {
+		Warnings []cli.Warning `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(login.stdout), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, login.stdout)
+	}
+	found := false
+	for _, warning := range envelope.Warnings {
+		if warning.Code == "regapi_ip_sync_failed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("warnings = %#v, want regapi_ip_sync_failed", envelope.Warnings)
+	}
+	if strings.Contains(login.stdout, privateDetail) || strings.Contains(login.stderr, privateDetail) {
+		t.Fatal("IP sync warning exposed a private provider detail")
+	}
+}
+
 func TestPortalSessionsAreIsolatedAcrossAccountProfiles(t *testing.T) {
 	t.Parallel()
 
@@ -337,18 +473,36 @@ func assertProviderLogin(t *testing.T, output, expected string) {
 type lifecycleBrowserFactory struct {
 	digest        []byte
 	providerLogin string
+	programResult json.RawMessage
+	programErr    error
+	programCalls  []session.ProgramID
 }
 
 func (f *lifecycleBrowserFactory) Open(
 	context.Context,
 	session.OpenSpec,
 ) (session.Browser, error) {
-	return &lifecycleBrowser{digest: f.digest, providerLogin: f.providerLogin}, nil
+	return &lifecycleBrowser{
+		digest:        f.digest,
+		providerLogin: f.providerLogin,
+		page:          &lifecyclePage{factory: f},
+	}, nil
+}
+
+func (f *lifecycleBrowserFactory) programCallCount(want session.ProgramID) int {
+	count := 0
+	for _, got := range f.programCalls {
+		if got == want {
+			count++
+		}
+	}
+	return count
 }
 
 type lifecycleBrowser struct {
 	digest        []byte
 	providerLogin string
+	page          session.PageExecutor
 }
 
 func (b *lifecycleBrowser) WaitForAuthentication(
@@ -380,10 +534,32 @@ func (*lifecycleBrowser) Logout(
 	return session.Observation{State: session.ObservedNoSession}, nil
 }
 
-func (*lifecycleBrowser) Executor() session.PageExecutor {
-	return nil
+func (b *lifecycleBrowser) Executor() session.PageExecutor {
+	return b.page
 }
 
 func (*lifecycleBrowser) Close(context.Context) error {
+	return nil
+}
+
+type lifecyclePage struct {
+	factory *lifecycleBrowserFactory
+}
+
+func (*lifecyclePage) Navigate(context.Context, string) error {
+	return nil
+}
+
+func (p *lifecyclePage) RunJSON(
+	_ context.Context,
+	program session.ProgramID,
+	_ json.RawMessage,
+	result *json.RawMessage,
+) error {
+	p.factory.programCalls = append(p.factory.programCalls, program)
+	if p.factory.programErr != nil {
+		return p.factory.programErr
+	}
+	*result = append((*result)[:0], p.factory.programResult...)
 	return nil
 }

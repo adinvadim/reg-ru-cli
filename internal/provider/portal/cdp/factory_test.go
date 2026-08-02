@@ -145,6 +145,11 @@ func TestPageExecutorKeepsCredentialsInsideSyntheticBFFAndGraphQLFixture(t *test
 		maxResultBytes: 4096,
 		allowedOrigins: []string{server.URL},
 	}
+	factory.programs[session.ProgramID("fixture.regapi-ip-sync-syntax")] = program{
+		source:         regAPIIPSyncProgram,
+		maxResultBytes: 1024,
+		allowedOrigins: []string{server.URL},
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -175,6 +180,11 @@ func TestPageExecutorKeepsCredentialsInsideSyntheticBFFAndGraphQLFixture(t *test
 			program: "fixture.graphql",
 			path:    "/graphql",
 			want:    `{"status":200,"body":{"data":{"viewer":{"__typename":"SyntheticViewer"}}}}`,
+		},
+		{
+			program: "fixture.regapi-ip-sync-syntax",
+			path:    "/",
+			want:    `{"state":"drift"}`,
 		},
 	}
 	for _, testCase := range testCases {
@@ -252,6 +262,36 @@ func TestBillingPortalProgramsKeepCheckoutLocatorInsideBrowserWorld(t *testing.T
 	}
 	if strings.Contains(checkout.source, "payment/order") {
 		t.Fatal("checkout program must not navigate the order route")
+	}
+}
+
+func TestREGAPIIPSyncProgramKeepsNetworkDetailsInsideBrowserWorld(t *testing.T) {
+	programs := productionPrograms()
+	sync, exists := programs[programREGAPIIPSync]
+	if !exists {
+		t.Fatal("REG.API IP sync program is not registered")
+	}
+	for _, marker := range []string{
+		"userSettingApiIPsAdd", "settingsApi", "currentIP",
+		"logout_other_sessions", "acc-csrftoken", "x-acc-csrftoken",
+		"Promise.all", `cache: "force-cache"`, `document.querySelector("h1")`,
+		`normalized.endsWith(".")`,
+	} {
+		if !strings.Contains(sync.source, marker) {
+			t.Errorf("REG.API IP sync program is missing semantic marker %q", marker)
+		}
+	}
+	for _, forbidden := range []string{
+		"return {state: \"added\", ip:",
+		"return {state: \"unchanged\", ip:",
+		"return {state: \"added\", whitelist:",
+	} {
+		if strings.Contains(sync.source, forbidden) {
+			t.Errorf("REG.API IP sync result exposes private network state through %q", forbidden)
+		}
+	}
+	if sync.maxResultBytes > 1024 {
+		t.Errorf("REG.API IP sync result limit = %d, want at most 1024", sync.maxResultBytes)
 	}
 }
 

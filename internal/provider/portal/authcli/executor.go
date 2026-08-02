@@ -2,6 +2,7 @@ package authcli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,9 +16,18 @@ import (
 type sessionBroker interface {
 	Login(context.Context, session.LoginSpec) (session.LoginResult, error)
 	Status(context.Context, session.Profile) (session.Status, error)
+	WithSession(
+		context.Context,
+		session.Profile,
+		func(session.PageExecutor) error,
+	) error
 	Logout(context.Context, session.Profile) (session.Status, error)
 	Forget(string) error
 }
+
+const regAPIIPSyncProgram session.ProgramID = "portal.auth.regapi-ip-sync"
+
+const regAPISettingsURL = "https://www.reg.ru/user/account/settings/api/"
 
 type Executor struct {
 	profiles profile.Repository
@@ -47,8 +57,10 @@ func (e *Executor) Execute(
 	switch operation.Action {
 	case "auth.login":
 		return e.login(ctx, operation)
-	case "auth.status", "auth.refresh":
-		return e.status(ctx, operation)
+	case "auth.status":
+		return e.status(ctx, operation, false)
+	case "auth.refresh":
+		return e.status(ctx, operation, true)
 	case "auth.logout":
 		return e.logout(ctx, operation)
 	default:
@@ -74,7 +86,11 @@ func (e *Executor) login(
 			return cli.Result{}, translate(operation, err)
 		}
 		if status.State == session.StateActive {
-			return renderStatus(operation.Account, status), nil
+			result := renderStatus(operation.Account, status)
+			return e.withREGAPIIPSyncWarning(ctx, result, session.Profile{
+				ID:         account.ID,
+				SessionRef: currentRef,
+			}), nil
 		}
 	}
 
@@ -95,12 +111,55 @@ func (e *Executor) login(
 	if currentRef != "" && currentRef != login.SessionRef {
 		_ = e.broker.Forget(currentRef)
 	}
-	return renderStatus(operation.Account, login.Status), nil
+	result := renderStatus(operation.Account, login.Status)
+	return e.withREGAPIIPSyncWarning(ctx, result, session.Profile{
+		ID:         account.ID,
+		SessionRef: login.SessionRef,
+	}), nil
+}
+
+func (e *Executor) withREGAPIIPSyncWarning(
+	ctx context.Context,
+	result cli.Result,
+	profile session.Profile,
+) cli.Result {
+	err := e.broker.WithSession(ctx, profile, func(page session.PageExecutor) error {
+		navigator, ok := page.(session.PageNavigator)
+		if !ok {
+			return errors.New("portal page navigation is unavailable")
+		}
+		if err := navigator.Navigate(ctx, regAPISettingsURL); err != nil {
+			return err
+		}
+		var raw json.RawMessage
+		if err := page.RunJSON(ctx, regAPIIPSyncProgram, json.RawMessage(`{}`), &raw); err != nil {
+			return err
+		}
+		var response struct {
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal(raw, &response); err != nil {
+			return err
+		}
+		if response.State != "added" && response.State != "unchanged" {
+			return fmt.Errorf("unexpected REG.API IP sync state %q", response.State)
+		}
+		return nil
+	})
+	if err == nil {
+		return result
+	}
+	result.Warnings = append(result.Warnings, cli.Warning{
+		Code:    "regapi_ip_sync_failed",
+		Message: "REG.API network access could not be synchronized automatically",
+	})
+	return result
 }
 
 func (e *Executor) status(
 	ctx context.Context,
 	operation cli.Operation,
+	syncREGAPIIP bool,
 ) (cli.Result, error) {
 	account, err := e.account(operation)
 	if err != nil {
@@ -119,7 +178,14 @@ func (e *Executor) status(
 	if err != nil {
 		return cli.Result{}, translate(operation, err)
 	}
-	return renderStatus(operation.Account, status), nil
+	result := renderStatus(operation.Account, status)
+	if syncREGAPIIP && status.State == session.StateActive {
+		result = e.withREGAPIIPSyncWarning(ctx, result, session.Profile{
+			ID:         account.ID,
+			SessionRef: account.Portal.SessionRef,
+		})
+	}
+	return result, nil
 }
 
 func (e *Executor) logout(

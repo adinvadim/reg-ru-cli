@@ -116,6 +116,16 @@ already active session is returned unchanged.
 
 `auth status` and `auth refresh` both perform an authoritative provider refresh
 inside the committed browser profile. This may extend the provider session.
+After every successful `auth login` and every active `auth refresh`, the CLI
+also reconciles the browser-observed current public IPv4 address with the
+REG.API allowlist. If an existing address or network already covers it, no
+mutation is sent. Otherwise the address is added through REG.RU's own account
+contract without a separate prompt; that provider flow can invalidate other
+REG.RU web sessions. The address, allowlist, CSRF material, and provider response
+remain inside the isolated browser world. Synchronization failure does not turn
+a valid portal login or refresh into an authentication failure: it adds only
+the stable, redacted `regapi_ip_sync_failed` warning. `auth status` does not
+modify the allowlist.
 Their stable state values are `not-established`, `active`, and `session-lost`;
 the latter deliberately does not guess whether the provider invalidated the
 session because of expiry, logout elsewhere, revocation, or another cause.

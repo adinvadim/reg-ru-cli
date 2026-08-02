@@ -65,7 +65,14 @@ regru --account work capability list
 
 `auth login` opens a dedicated headed browser. Complete passwords, CAPTCHA,
 and second factor in that browser; do not paste cookies or CSRF values into the
-terminal. Operational commands do not open an interactive login implicitly.
+terminal. After each successful `auth login` and `auth refresh`, `regru`
+silently ensures that the current public IPv4 address is allowed for REG.API;
+an address already covered by the provider whitelist is left unchanged. This
+maintenance step never asks for separate confirmation. If REG.RU rejects it,
+authentication still succeeds and returns the redacted warning
+`regapi_ip_sync_failed`. Adding a new address follows REG.RU's own security flow,
+which can sign out other REG.RU web sessions. Operational commands do not open
+an interactive login implicitly.
 
 The private user profile is `<UserConfigDir>/regru/config.toml`. A project may
 contain only this non-secret selector:
