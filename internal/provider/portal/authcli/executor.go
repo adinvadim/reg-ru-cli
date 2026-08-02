@@ -30,23 +30,34 @@ const regAPIIPSyncProgram session.ProgramID = "portal.auth.regapi-ip-sync"
 const regAPISettingsURL = "https://www.reg.ru/user/account/settings/api/"
 
 type Executor struct {
-	profiles profile.Repository
-	broker   sessionBroker
-	fallback cli.Executor
+	profiles          profile.Repository
+	broker            sessionBroker
+	fallback          cli.Executor
+	resolveEgressIPv4 func(context.Context) (string, error)
+}
+
+type Options struct {
+	ResolveEgressIPv4 func(context.Context) (string, error)
 }
 
 func New(
 	profiles profile.Repository,
 	broker sessionBroker,
 	fallback cli.Executor,
+	options ...Options,
 ) *Executor {
 	if fallback == nil {
 		fallback = cli.UnavailableExecutor{}
 	}
+	resolveEgressIPv4 := resolveREGAPIIPv4
+	if len(options) > 0 && options[0].ResolveEgressIPv4 != nil {
+		resolveEgressIPv4 = options[0].ResolveEgressIPv4
+	}
 	return &Executor{
-		profiles: profiles,
-		broker:   broker,
-		fallback: fallback,
+		profiles:          profiles,
+		broker:            broker,
+		fallback:          fallback,
+		resolveEgressIPv4: resolveEgressIPv4,
 	}
 }
 
@@ -123,7 +134,17 @@ func (e *Executor) withREGAPIIPSyncWarning(
 	result cli.Result,
 	profile session.Profile,
 ) cli.Result {
-	err := e.broker.WithSession(ctx, profile, func(page session.PageExecutor) error {
+	egressIPv4, err := e.resolveEgressIPv4(ctx)
+	if err != nil {
+		return withREGAPIIPSyncFailure(result)
+	}
+	args, err := json.Marshal(struct {
+		EgressIPv4 string `json:"egressIPv4"`
+	}{EgressIPv4: egressIPv4})
+	if err != nil {
+		return withREGAPIIPSyncFailure(result)
+	}
+	err = e.broker.WithSession(ctx, profile, func(page session.PageExecutor) error {
 		navigator, ok := page.(session.PageNavigator)
 		if !ok {
 			return errors.New("portal page navigation is unavailable")
@@ -132,7 +153,7 @@ func (e *Executor) withREGAPIIPSyncWarning(
 			return err
 		}
 		var raw json.RawMessage
-		if err := page.RunJSON(ctx, regAPIIPSyncProgram, json.RawMessage(`{}`), &raw); err != nil {
+		if err := page.RunJSON(ctx, regAPIIPSyncProgram, args, &raw); err != nil {
 			return err
 		}
 		var response struct {
@@ -149,6 +170,10 @@ func (e *Executor) withREGAPIIPSyncWarning(
 	if err == nil {
 		return result
 	}
+	return withREGAPIIPSyncFailure(result)
+}
+
+func withREGAPIIPSyncFailure(result cli.Result) cli.Result {
 	result.Warnings = append(result.Warnings, cli.Warning{
 		Code:    "regapi_ip_sync_failed",
 		Message: "REG.API network access could not be synchronized automatically",

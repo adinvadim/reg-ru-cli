@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Silently reconcile the current public IPv4 address with the REG.API allowlist after portal login and refresh, with redacted non-blocking failure warnings.
+- Silently reconcile browser and CLI-egress public IPv4 addresses with the REG.API allowlist after portal login and refresh, with redacted non-blocking failure warnings.
 - Show the authenticated REG.RU provider login separately from the local profile alias in human, JSON, and plain auth status output.
 - Reconcile interrupted support mutations with independent reads and wait for rendered ticket history before returning details.
 - Enable experimental browser-backed support ticket list, detail, create, reply, and close operations with typed drift probes and one-attempt mutation reconciliation.

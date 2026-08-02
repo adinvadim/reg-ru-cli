@@ -1,6 +1,6 @@
 package cdp
 
-const regAPIIPSyncProgram = `async function() {
+const regAPIIPSyncProgram = `async function(args) {
 	const probeBuild = async () => {
 		if (location.origin !== "https://www.reg.ru" || !document.body) return {ok: false};
 		const renderDeadline = Date.now() + 5000;
@@ -82,6 +82,7 @@ const regAPIIPSyncProgram = `async function() {
 		}
 		return mask !== null && ((network & mask) >>> 0) === ((address & mask) >>> 0);
 	};
+	if (!args || typeof args.egressIPv4 !== "string") return {state: "drift"};
 
 	let accCSRF = readCookie("acc-csrftoken");
 	if (!accCSRF) {
@@ -124,10 +125,20 @@ const regAPIIPSyncProgram = `async function() {
 	const settingsResult = await graphql("settingsApi", settingsQuery, {});
 	if (settingsResult.state !== "ok") return {state: settingsResult.state};
 	const currentIP = userResult.data && userResult.data.user && userResult.data.user.currentIP;
-	const address = parseIPv4(currentIP);
+	const rawTargets = [currentIP, args.egressIPv4];
+	const targets = [];
+	const seenTargets = new Set();
+	for (const raw of rawTargets) {
+		const address = parseIPv4(raw);
+		if (address === null) return {state: "drift"};
+		if (seenTargets.has(address)) continue;
+		seenTargets.add(address);
+		targets.push({raw, address});
+	}
 	const whitelist = settingsResult.data && settingsResult.data.settingsApi && settingsResult.data.settingsApi.ipWhitelist;
-	if (address === null || !Array.isArray(whitelist) || whitelist.some((entry) => typeof entry !== "string")) return {state: "drift"};
-	if (whitelist.some((entry) => covers(entry, address))) return {state: "unchanged"};
+	if (!Array.isArray(whitelist) || whitelist.some((entry) => typeof entry !== "string")) return {state: "drift"};
+	const missingTargets = targets.filter((target) => !whitelist.some((entry) => covers(entry, target.address)));
+	if (missingTargets.length === 0) return {state: "unchanged"};
 
 	let loginCSRF = readCookie("csrftoken");
 	if (!loginCSRF) {
@@ -156,7 +167,7 @@ const regAPIIPSyncProgram = `async function() {
 	].join("\n");
 	let mutationResult;
 	try {
-		mutationResult = await graphql("userSettingApiIPsAdd", mutation, {ips: [currentIP]});
+		mutationResult = await graphql("userSettingApiIPsAdd", mutation, {ips: missingTargets.map((target) => target.raw)});
 	} catch (_) {
 		return {state: "unknown"};
 	}
@@ -168,6 +179,6 @@ const regAPIIPSyncProgram = `async function() {
 	const verification = await graphql("settingsApi", settingsQuery, {});
 	if (verification.state !== "ok") return {state: "unknown"};
 	const verifiedWhitelist = verification.data && verification.data.settingsApi && verification.data.settingsApi.ipWhitelist;
-	if (!Array.isArray(verifiedWhitelist) || !verifiedWhitelist.some((entry) => covers(entry, address))) return {state: "unknown"};
+	if (!Array.isArray(verifiedWhitelist) || !targets.every((target) => verifiedWhitelist.some((entry) => covers(entry, target.address)))) return {state: "unknown"};
 	return {state: "added"};
 }`

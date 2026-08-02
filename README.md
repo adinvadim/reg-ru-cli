@@ -66,8 +66,9 @@ regru --account work capability list
 `auth login` opens a dedicated headed browser. Complete passwords, CAPTCHA,
 and second factor in that browser; do not paste cookies or CSRF values into the
 terminal. After each successful `auth login` and `auth refresh`, `regru`
-silently ensures that the current public IPv4 address is allowed for REG.API;
-an address already covered by the provider whitelist is left unchanged. This
+silently ensures that the public IPv4 addresses observed for the browser
+session and CLI network egress are allowed for REG.API; an address already
+covered by the provider whitelist is left unchanged. This
 maintenance step never asks for separate confirmation. If REG.RU rejects it,
 authentication still succeeds and returns the redacted warning
 `regapi_ip_sync_failed`. Adding a new address follows REG.RU's own security flow,

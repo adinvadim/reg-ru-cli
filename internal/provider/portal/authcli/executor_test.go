@@ -37,7 +37,7 @@ func TestCLIAuthLifecyclePersistsOnlyOpaqueSessionReference(t *testing.T) {
 		&lifecycleBrowserFactory{digest: digest, providerLogin: providerLogin},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
-	executor := authcli.New(profiles, broker, cli.UnavailableExecutor{})
+	executor := newAuthExecutor(profiles, broker, cli.UnavailableExecutor{})
 
 	login := executeCLI(t, profiles, executor,
 		"--json",
@@ -181,7 +181,7 @@ func TestAuthLoginSynchronizesREGAPIIPWithoutExposingAddress(t *testing.T) {
 		factory,
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
-	executor := authcli.New(profiles, broker, nil)
+	executor := newAuthExecutor(profiles, broker, nil)
 
 	login := executeCLI(t, profiles, executor,
 		"--json", "--force", "--account", alias,
@@ -205,6 +205,7 @@ func TestAuthRefreshSynchronizesREGAPIIP(t *testing.T) {
 
 	const alias = "work"
 	const profileID = "p_ffffffffffffffffffffffffff"
+	const egressIPv4 = "198.51.100.17"
 	profiles := profile.NewMemoryRepository(profile.Config{
 		SchemaVersion: profile.SchemaVersion,
 		Accounts: map[string]profile.Account{
@@ -221,7 +222,11 @@ func TestAuthRefreshSynchronizesREGAPIIP(t *testing.T) {
 		factory,
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
-	executor := authcli.New(profiles, broker, nil)
+	executor := authcli.New(profiles, broker, nil, authcli.Options{
+		ResolveEgressIPv4: func(context.Context) (string, error) {
+			return egressIPv4, nil
+		},
+	})
 
 	login := executeCLI(t, profiles, executor,
 		"--json", "--force", "--account", alias,
@@ -231,6 +236,7 @@ func TestAuthRefreshSynchronizesREGAPIIP(t *testing.T) {
 		t.Fatalf("login setup exit = %d; stderr=%s", login.exitCode, login.stderr)
 	}
 	factory.programCalls = nil
+	factory.programArgs = nil
 
 	refresh := executeCLI(t, profiles, executor,
 		"--json", "--force", "--account", alias,
@@ -241,6 +247,18 @@ func TestAuthRefreshSynchronizesREGAPIIP(t *testing.T) {
 	}
 	if got := factory.programCallCount("portal.auth.regapi-ip-sync"); got != 1 {
 		t.Fatalf("REG.API IP sync calls = %d, want 1", got)
+	}
+	var args struct {
+		EgressIPv4 string `json:"egressIPv4"`
+	}
+	if err := json.Unmarshal(factory.lastProgramArgs("portal.auth.regapi-ip-sync"), &args); err != nil {
+		t.Fatalf("decode REG.API IP sync args: %v", err)
+	}
+	if args.EgressIPv4 != egressIPv4 {
+		t.Errorf("egress IPv4 = %q, want injected CLI address", args.EgressIPv4)
+	}
+	if strings.Contains(refresh.stdout, egressIPv4) || strings.Contains(refresh.stderr, egressIPv4) {
+		t.Fatal("auth refresh exposed the CLI egress IP")
 	}
 }
 
@@ -266,7 +284,7 @@ func TestAuthIPSyncFailureIsOnlyARedactedWarning(t *testing.T) {
 		factory,
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
-	executor := authcli.New(profiles, broker, nil)
+	executor := newAuthExecutor(profiles, broker, nil)
 
 	login := executeCLI(t, profiles, executor,
 		"--json", "--force", "--account", alias,
@@ -316,7 +334,7 @@ func TestPortalSessionsAreIsolatedAcrossAccountProfiles(t *testing.T) {
 		},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
-	executor := authcli.New(profiles, broker, nil)
+	executor := newAuthExecutor(profiles, broker, nil)
 
 	for _, alias := range []string{"first", "second"} {
 		run := executeCLI(t, profiles, executor,
@@ -373,7 +391,7 @@ func TestAuthStatusEscapesProviderLoginInTextModes(t *testing.T) {
 		},
 		session.Options{LoginURL: "https://www.reg.ru/user/account/"},
 	)
-	executor := authcli.New(profiles, broker, nil)
+	executor := newAuthExecutor(profiles, broker, nil)
 	login := executeCLI(t, profiles, executor,
 		"--json", "--force", "--account", alias,
 		"auth", "login", "--login-timeout", "1m",
@@ -397,6 +415,18 @@ type cliRun struct {
 	exitCode int
 	stdout   string
 	stderr   string
+}
+
+func newAuthExecutor(
+	profiles profile.Repository,
+	broker *session.Broker,
+	fallback cli.Executor,
+) *authcli.Executor {
+	return authcli.New(profiles, broker, fallback, authcli.Options{
+		ResolveEgressIPv4: func(context.Context) (string, error) {
+			return "192.0.2.10", nil
+		},
+	})
 }
 
 func executeCLI(
@@ -476,6 +506,7 @@ type lifecycleBrowserFactory struct {
 	programResult json.RawMessage
 	programErr    error
 	programCalls  []session.ProgramID
+	programArgs   []json.RawMessage
 }
 
 func (f *lifecycleBrowserFactory) Open(
@@ -497,6 +528,15 @@ func (f *lifecycleBrowserFactory) programCallCount(want session.ProgramID) int {
 		}
 	}
 	return count
+}
+
+func (f *lifecycleBrowserFactory) lastProgramArgs(want session.ProgramID) json.RawMessage {
+	for index := len(f.programCalls) - 1; index >= 0; index-- {
+		if f.programCalls[index] == want {
+			return f.programArgs[index]
+		}
+	}
+	return nil
 }
 
 type lifecycleBrowser struct {
@@ -553,10 +593,11 @@ func (*lifecyclePage) Navigate(context.Context, string) error {
 func (p *lifecyclePage) RunJSON(
 	_ context.Context,
 	program session.ProgramID,
-	_ json.RawMessage,
+	args json.RawMessage,
 	result *json.RawMessage,
 ) error {
 	p.factory.programCalls = append(p.factory.programCalls, program)
+	p.factory.programArgs = append(p.factory.programArgs, append(json.RawMessage(nil), args...))
 	if p.factory.programErr != nil {
 		return p.factory.programErr
 	}

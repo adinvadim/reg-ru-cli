@@ -275,7 +275,7 @@ func TestREGAPIIPSyncProgramKeepsNetworkDetailsInsideBrowserWorld(t *testing.T) 
 		"userSettingApiIPsAdd", "settingsApi", "currentIP",
 		"logout_other_sessions", "acc-csrftoken", "x-acc-csrftoken",
 		"Promise.all", `cache: "force-cache"`, `document.querySelector("h1")`,
-		`normalized.endsWith(".")`,
+		`normalized.endsWith(".")`, "egressIPv4", "missingTargets.map", "targets.every",
 	} {
 		if !strings.Contains(sync.source, marker) {
 			t.Errorf("REG.API IP sync program is missing semantic marker %q", marker)
