@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Wait for the rendered support inventory before list and detail reads, and avoid false contract drift from frontend bundle filenames.
 - Add stable CloudVPS backup status output and verify enable or disable postconditions without replaying ambiguous mutations.
 - Silently reconcile browser and CLI-egress public IPv4 addresses with the REG.API allowlist after portal login and refresh, with redacted non-blocking failure warnings.
 - Show the authenticated REG.RU provider login separately from the local profile alias in human, JSON, and plain auth status output.

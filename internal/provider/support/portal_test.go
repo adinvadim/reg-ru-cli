@@ -125,8 +125,28 @@ func TestPortalMutationDispatchesOnceAndPreservesAmbiguousOutcome(t *testing.T) 
 	}
 }
 
+func TestPortalListWaitsForRenderedInventory(t *testing.T) {
+	page := &fakeSupportPage{responses: []json.RawMessage{
+		json.RawMessage(`{"state":"operation-drift"}`),
+		json.RawMessage(`{"state":"available","tickets":[],"total":0}`),
+		json.RawMessage(`{"state":"available","tickets":[{"id":"123","status":"open","preview":"Test"}],"total":1}`),
+	}}
+	portal := newTestPortal(page)
+	tickets, err := portal.List(context.Background(), supportPortalAccount(), ListRequest{
+		Limit: 10, Page: 1, Status: "all",
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(tickets.Tickets) != 1 || tickets.Tickets[0].ID != "123" {
+		t.Fatalf("List() tickets = %#v, want rendered inventory", tickets.Tickets)
+	}
+}
+
 func TestPortalGetWaitsForRenderedMessageHistory(t *testing.T) {
 	page := &fakeSupportPage{responses: []json.RawMessage{
+		json.RawMessage(`{"state":"operation-drift"}`),
+		json.RawMessage(`{"state":"available","tickets":[],"total":0}`),
 		json.RawMessage(`{"state":"navigating"}`),
 		json.RawMessage(`{"state":"available","ticket":{"id":"123","title":"Test","status":"open","messages":[]}}`),
 		json.RawMessage(`{"state":"available","ticket":{"id":"123","title":"Test","status":"open","messages":[{"body":"created"},{"body":"reply"}]}}`),

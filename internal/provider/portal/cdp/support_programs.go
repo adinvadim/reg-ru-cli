@@ -2,12 +2,10 @@ package cdp
 
 const supportReadProgram = `async function(args) {
 	const text = node => String(node && node.textContent || "").trim();
-	const scripts = Array.from(document.scripts).map(script => script.src);
-	if (args.action !== "detail" && args.action !== "reconcile" && !scripts.some(src => /\/dist\/support-tickets\.[a-f0-9]+\.js$/.test(src))) return {state: "build-drift"};
 	if (location.origin !== "https://www.reg.ru" || !location.pathname.startsWith("/support/tickets")) return {state: "route-drift"};
 	if (args.action === "list" || args.action === "reconcile-create") {
 		const root = document.querySelector(".b-support-ticket-list");
-		if (!root) return {state: args.action === "list" ? "principal-drift" : "operation-drift"};
+		if (!root) return {state: "operation-drift"};
 		if (args.action === "reconcile-create") {
 			const exact = Array.from(root.querySelectorAll(".b-support-ticket-new__msg"))
 				.filter(node => text(node) === args.message).length;

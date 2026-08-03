@@ -2,8 +2,10 @@
 
 The support command tree uses an experimental, browser-session-bound adapter.
 REG.RU exposes a human support workflow and a private web implementation, not a
-published support API contract, so every operation is guarded by build, route,
-principal, operation, and response probes.
+published support API contract, so every operation is guarded by route,
+principal, rendered-structure, operation, and response probes. Read operations
+wait for the rendered inventory within a bounded deadline; frontend bundle
+filenames are not treated as provider API versions.
 
 An authorized value-redacted capture on 2026-08-01 established the rendered
 inventory, numeric display IDs, detail conversations, generic no-service create

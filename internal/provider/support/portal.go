@@ -107,6 +107,9 @@ func (p *Portal) List(ctx context.Context, account profile.Account, request List
 		Total   int             `json:"total"`
 	}
 	if err := p.onSupportPage(ctx, account, func(page session.PageExecutor) error {
+		if err := p.waitForList(ctx, page); err != nil {
+			return err
+		}
 		return runProgram(ctx, page, programSupportRead, requestBody, &envelope)
 	}); err != nil {
 		return TicketPage{}, err
@@ -123,6 +126,9 @@ func (p *Portal) List(ctx context.Context, account profile.Account, request List
 func (p *Portal) Get(ctx context.Context, account profile.Account, id string) (Ticket, error) {
 	var ticket Ticket
 	if err := p.onSupportPage(ctx, account, func(page session.PageExecutor) error {
+		if err := p.waitForList(ctx, page); err != nil {
+			return err
+		}
 		if err := navigateTicket(ctx, page, id); err != nil {
 			return err
 		}
@@ -140,18 +146,7 @@ func (p *Portal) Mutate(ctx context.Context, account profile.Account, request Mu
 		State string `json:"state"`
 	}
 	if err := p.onSupportPage(ctx, account, func(page session.PageExecutor) error {
-		var preflight struct {
-			State string `json:"state"`
-		}
-		if err := runProgram(ctx, page, programSupportRead, map[string]any{
-			"action": "list",
-			"limit":  1,
-			"page":   1,
-			"status": "all",
-		}, &preflight); err != nil {
-			return err
-		}
-		if err := portalStateError(preflight.State); err != nil {
+		if err := p.waitForList(ctx, page); err != nil {
 			return err
 		}
 
@@ -241,7 +236,7 @@ func (p *Portal) reconcileMutation(ctx context.Context, page session.PageExecuto
 		return false
 	}
 	if request.Action != "create" {
-		if !p.waitForList(ctx, page) || navigateTicket(ctx, page, request.ID) != nil {
+		if p.waitForList(ctx, page) != nil || navigateTicket(ctx, page, request.ID) != nil {
 			return false
 		}
 	}
@@ -270,9 +265,10 @@ func (p *Portal) reconcileMutation(ctx context.Context, page session.PageExecuto
 	}
 }
 
-func (p *Portal) waitForList(ctx context.Context, page session.PageExecutor) bool {
+func (p *Portal) waitForList(ctx context.Context, page session.PageExecutor) error {
 	deadline := time.NewTimer(p.pollTimeout)
 	defer deadline.Stop()
+	var lastErr error
 	for {
 		var envelope struct {
 			State string `json:"state"`
@@ -281,13 +277,21 @@ func (p *Portal) waitForList(ctx context.Context, page session.PageExecutor) boo
 			"action": "list", "limit": 1, "page": 1, "status": "all",
 		}, &envelope)
 		if err == nil && envelope.State == "available" {
-			return true
+			return nil
 		}
-		if err == nil && envelope.State != "principal-drift" && envelope.State != "operation-drift" {
-			return false
+		if err == nil {
+			lastErr = portalStateError(envelope.State)
+			if envelope.State != "operation-drift" {
+				return lastErr
+			}
+		} else {
+			lastErr = err
 		}
-		if p.waitForPoll(ctx, deadline) != nil {
-			return false
+		if err := p.waitForPoll(ctx, deadline); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			return lastErr
 		}
 	}
 }
