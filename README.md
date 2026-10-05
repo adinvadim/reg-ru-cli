@@ -156,7 +156,7 @@ The authoritative guides are:
 - [S3 commands](docs/s3.md)
 - [Billing and invoice commands](docs/billing.md)
 - [Experimental support adapter](docs/support.md)
-- [Domain terminology and established constraints](CONTEXT.md)
+- [Domain terminology and established constraints](GLOSSARY.md)
 
 The visible command tree is discoverable with `regru --help` and any nested
 `--help`. Shell completion is available through `regru completion

@@ -97,7 +97,7 @@ opaque credential reference as a substitute for an account ID. A portal
 principal and a Cloud environment are also distinct concepts in this
 repository; a successful bearer request proves access to the latter, not a
 cross-surface identity join.
-([authentication][auth], [project domain terminology](../../CONTEXT.md))
+([authentication][auth], [project domain terminology](../../GLOSSARY.md))
 
 ## `GET /v1/balance_data`
 
