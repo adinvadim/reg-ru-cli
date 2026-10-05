@@ -245,7 +245,7 @@ observed shapes; the public contract does not.
 
 - [`docs/research/regapi2-billing-contract.md`](regapi2-billing-contract.md)
 - [`docs/research/credential-provisioning-capability.md`](credential-provisioning-capability.md)
-- [`CONTEXT.md`](../../CONTEXT.md)
+- [`GLOSSARY.md`](../../GLOSSARY.md)
 
 ## Sources
 
