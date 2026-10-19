@@ -164,9 +164,15 @@ bash|zsh|fish|powershell`.
 
 ## Development and releases
 
-`make check` runs formatting verification, vetting, unit tests, and the race
-detector. CI additionally scans the repository for secrets and cross-compiles
+`make check` runs formatting verification, vetting, unit tests, the race
+detector, and read-only release-fragment validation. CI additionally scans the repository for secrets and cross-compiles
 every release target. Release tags matching `v*` must have a corresponding
 `## X.Y.Z - YYYY-MM-DD` section in `CHANGELOG.md`; the release workflow uses
 that section verbatim as the GitHub release notes and uploads the binaries and
 checksums.
+
+User-visible changes add independent [release fragments](.changes/README.md).
+Before tagging, commit the fragments, run `make release-notes VERSION=X.Y.Z`,
+review and commit the generated changelog, receipt, and fragment deletions,
+then create the existing `vX.Y.Z` release tag. The tag workflow still extracts
+its frozen version section; preparation does not publish or tag anything.

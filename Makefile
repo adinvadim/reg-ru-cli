@@ -7,7 +7,7 @@ COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || printf '%s' none)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X github.com/adinvadim/reg-ru-cli/internal/version.Version=$(VERSION) -X github.com/adinvadim/reg-ru-cli/internal/version.Commit=$(COMMIT) -X github.com/adinvadim/reg-ru-cli/internal/version.Date=$(BUILD_DATE)
 
-.PHONY: build check dist fmt test test-race vet
+.PHONY: build check dist fmt test test-race vet release-notes check-release-notes
 
 build:
 	mkdir -p bin
@@ -30,7 +30,7 @@ test:
 test-race:
 	$(GO) test -race ./...
 
-check: fmt vet test test-race
+check: fmt vet test test-race check-release-notes
 
 dist:
 	mkdir -p dist
@@ -48,3 +48,9 @@ dist:
 	else \
 		shasum -a 256 regru_$(VERSION)_* > checksums.txt; \
 	fi
+
+check-release-notes:
+	$(GO) run ./scripts/prepare-release --check
+
+release-notes:
+	$(GO) run ./scripts/prepare-release "$(VERSION)"

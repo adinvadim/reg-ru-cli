@@ -1,2 +1,5 @@
 /bin/
 /dist/
+
+# Local fragment recovery, on the fragment filesystem for atomic rename.
+.changes/.recovery/
