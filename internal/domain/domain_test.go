@@ -156,6 +156,14 @@ func TestGenerateHonoursZonesLimitAndLatinInput(t *testing.T) {
 		t.Fatalf("limited candidates = %v", names)
 	}
 
+	explicit, err := Generate([]string{"домкрай|domkraj"}, []Zone{ZoneRU}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := candidateNames(explicit); !reflect.DeepEqual(names, []string{"domkray.ru", "domkraj.ru"}) {
+		t.Fatalf("explicit spelling lost its rank to a duplicate substitution: %v", names)
+	}
+
 	if _, err := Generate([]string{"a"}, []Zone{ZoneRU}, 0); !errors.Is(err, ErrNoCandidates) {
 		t.Fatalf("too-short word error = %v", err)
 	}

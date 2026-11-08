@@ -164,14 +164,12 @@ func Generate(words []string, zones []Zone, limit int) ([]Candidate, error) {
 		zoneIndex int
 		length    int
 	}
-	seen := map[string]bool{}
 	all := []ranked{}
 	add := func(label string, zone Zone, zoneIndex int, hyphen bool, substitutions int, exact bool) {
 		name, err := Parse(label + "." + string(zone))
-		if err != nil || seen[name.ASCII] {
+		if err != nil {
 			return
 		}
-		seen[name.ASCII] = true
 		length := len(name.Label())
 		if zone == ZoneRF {
 			length = utf8.RuneCountInString(strings.TrimSuffix(name.Unicode, ".рф"))
@@ -239,12 +237,17 @@ func Generate(words []string, zones []Zone, limit int) ([]Candidate, error) {
 		}
 		return left.candidate.Name.ASCII < right.candidate.Name.ASCII
 	})
-	if len(all) > limit {
-		all = all[:limit]
-	}
-	result := make([]Candidate, 0, len(all))
-	for index, item := range all {
-		item.candidate.Rank = index + 1
+	seen := map[string]bool{}
+	result := make([]Candidate, 0, limit)
+	for _, item := range all {
+		if seen[item.candidate.Name.ASCII] {
+			continue
+		}
+		seen[item.candidate.Name.ASCII] = true
+		if len(result) == limit {
+			break
+		}
+		item.candidate.Rank = len(result) + 1
 		result = append(result, item.candidate)
 	}
 	return result, nil
