@@ -270,8 +270,9 @@ above them it requires `--force`. `--dry-run` occurs before
 confirmation and before the injected executor, so it cannot make a provider,
 portal, S3, browser, BFF, or CDP call. Dry-run output reports only the account
 alias, operation name, and argument count; it does not echo opaque identifiers
-or paths. Domain mutations add a locally validated `plan` (normalized name,
-nameservers, and caps given as flags).
+or paths. Domain mutations add a locally validated plan (normalized name, nameservers,
+and caps given as flags): a `plan` object in JSON, a second human line, and a
+`plan<TAB>unicode<TAB>ascii<TAB>nameservers` record in plain output.
 
 The process root is canceled on Ctrl-C. The first interrupt propagates through
 the command context; signal interception is then removed so a second Ctrl-C

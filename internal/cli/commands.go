@@ -29,7 +29,7 @@ type commandSpec struct {
 	// accountOptional commands run without a selected account.
 	accountOptional bool
 	selfConfirmed   bool
-	dryRunPlan      func() map[string]any
+	dryRunPlan      func() dryRunPlan
 }
 
 func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {

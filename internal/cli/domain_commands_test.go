@@ -116,6 +116,18 @@ func TestDomainNameserverDryRunMakesNoCalls(t *testing.T) {
 	}
 }
 
+func TestDomainDryRunPlanIsVisibleInEveryOutputMode(t *testing.T) {
+	for _, mode := range [][]string{nil, {"--plain"}} {
+		args := append(append([]string{}, mode...), "--account", "personal", "--dry-run", "domain", "buy", "домкрай.рф", "--ns", "nic")
+		run := runCLI(t, nil, args, "", false, nil, nil)
+		for _, want := range []string{"домкрай.рф", "xn--80ahqcjlq.xn--p1ai", "ns8-cloud.nic.ru"} {
+			if run.exitCode != ExitOK || !strings.Contains(run.stdout, want) {
+				t.Errorf("mode %v: exit = %d, stdout %q lacks %q", mode, run.exitCode, run.stdout, want)
+			}
+		}
+	}
+}
+
 func TestDomainBuyAppliesPolicyInsteadOfPrompt(t *testing.T) {
 	var received Operation
 	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {

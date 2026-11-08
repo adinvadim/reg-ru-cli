@@ -238,7 +238,14 @@ type executionPolicy struct {
 	// its own policy (for example spending caps) after reading live state.
 	selfConfirmed bool
 	confirmation  string
-	dryRunPlan    func() map[string]any
+	dryRunPlan    func() dryRunPlan
+}
+
+// dryRunPlan is a locally validated preview of a mutation in every output mode.
+type dryRunPlan struct {
+	data  map[string]any
+	human string
+	plain string
 }
 
 func (r *appRuntime) executeOperation(
@@ -257,21 +264,22 @@ func (r *appRuntime) executeOperation(
 			"action":         operation.Action,
 			"argument_count": len(operation.Arguments),
 		}
-		if policy.dryRunPlan != nil {
-			data["plan"] = policy.dryRunPlan()
+		human := fmt.Sprintf("Would run %s for account %s", operation.Action, operation.Account)
+		plain := []string{
+			fmt.Sprintf(
+				"%s\t%s\t%d",
+				escapePlainField(operation.Account),
+				escapePlainField(operation.Action),
+				len(operation.Arguments),
+			),
 		}
-		return r.writeResult(Result{
-			Human: fmt.Sprintf("Would run %s for account %s", operation.Action, operation.Account),
-			Plain: []string{
-				fmt.Sprintf(
-					"%s\t%s\t%d",
-					escapePlainField(operation.Account),
-					escapePlainField(operation.Action),
-					len(operation.Arguments),
-				),
-			},
-			Data: data,
-		})
+		if policy.dryRunPlan != nil {
+			plan := policy.dryRunPlan()
+			data["plan"] = plan.data
+			human += "\n" + plan.human
+			plain = append(plain, plan.plain)
+		}
+		return r.writeResult(Result{Human: human, Plain: plain, Data: data})
 	}
 
 	if policy.mutating && !policy.selfConfirmed {

@@ -101,7 +101,7 @@ func newDomainQuoteCommand(app *appRuntime) *cobra.Command {
 
 func newDomainBuyCommand(app *appRuntime) *cobra.Command {
 	var nameservers, maxPrice, maxRenewal, userServID string
-	var plan map[string]any
+	var plan dryRunPlan
 	command := newOperationCommand(app, commandSpec{
 		use:           "buy <name>",
 		short:         "Register a domain for one year from the REG.RU balance with nameservers set",
@@ -109,7 +109,7 @@ func newDomainBuyCommand(app *appRuntime) *cobra.Command {
 		action:        "domain.buy",
 		mutating:      true,
 		selfConfirmed: true,
-		dryRunPlan:    func() map[string]any { return plan },
+		dryRunPlan:    func() dryRunPlan { return plan },
 		args:          domainNameArgs(1, 1),
 		parameters: func() map[string][]string {
 			return operationParameters("ns", nameservers, "max-price", maxPrice, "max-renewal", maxRenewal, "user-servid", userServID)
@@ -137,12 +137,17 @@ func newDomainBuyCommand(app *appRuntime) *cobra.Command {
 		if userServID != "" && !validUserServID(userServID) {
 			return UsageError("--user-servid must be 32 lower-case hexadecimal characters")
 		}
-		plan = map[string]any{"domain": name, "nameservers": servers, "period": 1, "payment": "balance"}
+		plan = domainPlan(name, servers)
+		plan.data["period"] = 1
+		plan.data["payment"] = "balance"
+		plan.human = fmt.Sprintf("Domain %s, 1 year from balance, NS %s", name.Display(), strings.Join(servers, ", "))
 		if maxPrice != "" {
-			plan["maxPrice"] = maxPrice
+			plan.data["maxPrice"] = maxPrice
+			plan.human += ", max price " + maxPrice + " RUB"
 		}
 		if maxRenewal != "" {
-			plan["maxRenewal"] = maxRenewal
+			plan.data["maxRenewal"] = maxRenewal
+			plan.human += ", max renewal " + maxRenewal + " RUB"
 		}
 		return nil
 	}
@@ -157,7 +162,7 @@ func newDomainBuyCommand(app *appRuntime) *cobra.Command {
 
 func newDomainNSSetCommand(app *appRuntime) *cobra.Command {
 	var nameservers string
-	var plan map[string]any
+	var plan dryRunPlan
 	command := newOperationCommand(app, commandSpec{
 		use:          "set <name>",
 		short:        "Replace a domain's nameservers through REG.API domain/update_nss",
@@ -166,7 +171,7 @@ func newDomainNSSetCommand(app *appRuntime) *cobra.Command {
 		mutating:     true,
 		args:         domainNameArgs(1, 1),
 		confirmation: "Changing nameservers can make the domain unreachable for up to 24 hours.",
-		dryRunPlan:   func() map[string]any { return plan },
+		dryRunPlan:   func() dryRunPlan { return plan },
 		parameters: func() map[string][]string {
 			return operationParameters("ns", nameservers)
 		},
@@ -182,12 +187,23 @@ func newDomainNSSetCommand(app *appRuntime) *cobra.Command {
 		if err != nil {
 			return UsageError(err.Error())
 		}
-		plan = map[string]any{"domain": name, "nameservers": servers}
+		plan = domainPlan(name, servers)
+		plan.human = fmt.Sprintf("Domain %s, NS %s", name.Display(), strings.Join(servers, ", "))
 		return nil
 	}
 	command.Example = `  regru --account personal domain ns set domkray.ru --ns nic
   regru --account personal --force domain ns set domkray.ru --ns ns1.example.net,ns2.example.net`
 	return command
+}
+
+func domainPlan(name domain.Name, servers []string) dryRunPlan {
+	return dryRunPlan{
+		data: map[string]any{"domain": name, "nameservers": servers},
+		plain: strings.Join([]string{
+			"plan", escapePlainField(name.Unicode), escapePlainField(name.ASCII),
+			escapePlainField(strings.Join(servers, ",")),
+		}, "\t"),
+	}
 }
 
 func domainNameArgs(minimum, maximum int) cobra.PositionalArgs {
