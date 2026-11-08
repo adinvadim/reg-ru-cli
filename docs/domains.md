@@ -106,6 +106,10 @@ first-year price may differ from the public site's promo price.
    makes no credential, registry, or REG.API call.
 2. Require `contact_profile_type` and `contact_profile_name` in the account
    profile (`configuration_error`, exit 3, otherwise).
+   With `--user-servid`, first look that ID up with `service/get_info`: a
+   service for this name is reported as committed (`reconciled: true`) without
+   any further check or order; a service for another name refuses with
+   `spending_policy_refused` / `user_servid_conflict`; an unused ID continues.
 3. Re-check the registry. `taken` fails with `domain_unavailable`; `unknown`
    fails with `availability_unknown`. Nothing is sent to REG.API.
 4. Read the live zone price. A minimum period above one year refuses.
@@ -141,13 +145,13 @@ decimals.
 
 After an ambiguous dispatch the CLI never resends `domain/create`. It looks
 the order up with `service/get_info` by `user_servid` (bounded to 20 s, even
-after Ctrl-C). A found service is reported as committed with
-`reconciled: true`. Anything else returns `outcome_unknown` (exit 10) with
+after Ctrl-C). A found service for the same name is reported as committed with
+`reconciled: true`; a service for another name is `user_servid_conflict`. Anything else returns `outcome_unknown` (exit 10) with
 `details.evidence`: `userServid`, `serviceLookup` (`not_found` or `failed`),
 `balanceBefore`, `balanceAfter`, `balanceChanged`, and `registryState`. Check
 `regru domain list` before retrying, and retry only with
-`--user-servid <same value>`: a landed first order then fails with
-`USER_SERVID_IS_NOT_UNIQUE`, which is reconciled instead of buying twice.
+`--user-servid <same value>`: the ID is looked up before anything else, so a
+landed first order is reported instead of bought twice.
 
 Registration is an application: the service starts in state `N` and becomes
 `A` later. NIC.RU zone creation and records stay outside this CLI (`nic-dns`).

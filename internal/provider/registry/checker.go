@@ -49,8 +49,8 @@ func NewChecker(options Options) *Checker {
 	if options.Timeout <= 0 {
 		options.Timeout = DefaultTimeout
 	}
-	if options.TCISpacing < 0 {
-		options.TCISpacing = 0
+	if options.TCISpacing <= 0 {
+		options.TCISpacing = DefaultTCISpacing
 	}
 	if options.TCIConcurrency <= 0 || options.TCIConcurrency > defaultTCIConcurrency {
 		options.TCIConcurrency = defaultTCIConcurrency

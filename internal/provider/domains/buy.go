@@ -46,6 +46,13 @@ func (e *Executor) buy(ctx context.Context, operation cli.Operation) (cli.Result
 		userServID: parameter(operation, "user-servid"),
 	}
 
+	if plan.userServID != "" {
+		result, landed, err := e.existingOrder(ctx, operation, plan)
+		if err != nil || landed {
+			return result, err
+		}
+	}
+
 	verdict := e.options.Registry.Check(ctx, []domain.Name{name})[0]
 	if err := ctx.Err(); err != nil {
 		return cli.Result{}, err
@@ -103,6 +110,42 @@ func (e *Executor) buy(ctx context.Context, operation cli.Operation) (cli.Result
 		return renderPurchase(plan, created, nil), nil
 	}
 	return e.purchaseFailure(ctx, operation, client, plan, err)
+}
+
+// existingOrder looks up a caller-supplied user_servid before any precheck,
+// so a retry after outcome_unknown reports a landed order instead of failing
+// on registry or balance checks that the first order itself changed.
+func (e *Executor) existingOrder(ctx context.Context, operation cli.Operation, plan purchasePlan) (cli.Result, bool, error) {
+	client, err := e.regapiClient(ctx, operation)
+	if err != nil {
+		return cli.Result{}, false, translateError(operation, err)
+	}
+	defer client.Close()
+	info, found, err := client.ServiceByUserServID(ctx, plan.userServID)
+	if err != nil {
+		return cli.Result{}, false, translateError(operation, err)
+	}
+	if !found {
+		return cli.Result{}, false, nil
+	}
+	if !sameName(info.Name, plan.name) {
+		return cli.Result{}, false, userServIDConflict(plan, info)
+	}
+	evidence := Evidence{Trigger: "user_servid_supplied", UserServID: plan.userServID, ServiceLookup: "found"}
+	return renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State}), true, nil
+}
+
+func sameName(serviceName string, name domain.Name) bool {
+	parsed, err := domain.Parse(serviceName)
+	return err == nil && parsed.ASCII == name.ASCII
+}
+
+func userServIDConflict(plan purchasePlan, info regapi.ServiceInfo) error {
+	return cli.SpendingPolicyRefused(
+		"user_servid_conflict",
+		"the user_servid already belongs to a different service; nothing was bought for this name",
+		map[string]any{"domain": plan.name.Display(), "userServid": plan.userServID, "serviceName": info.Name},
+	)
 }
 
 func (e *Executor) purchaseFailure(
@@ -165,6 +208,9 @@ func (e *Executor) reconcile(
 		evidence.ServiceLookup = "failed"
 	case found:
 		evidence.ServiceLookup = "found"
+		if !sameName(info.Name, plan.name) {
+			return cli.Result{}, userServIDConflict(plan, info)
+		}
 		return renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State}), nil
 	default:
 		evidence.ServiceLookup = "not_found"

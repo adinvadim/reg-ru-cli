@@ -262,7 +262,7 @@ func TestBuyReconciliationNeverRetries(t *testing.T) {
 				"domain/create":     {testCase.create}, "service/get_info": {testCase.info},
 			})
 			fake := &fakeRegistry{}
-			operation, _ := buyOperation(false, map[string][]string{"user-servid": {"fedcba9876543210fedcba9876543210"}})
+			operation, _ := buyOperation(false, nil)
 			result, err := testExecutor(t, script, fake, ownerSettings).Execute(context.Background(), operation)
 			if script.count("domain/create") != 1 {
 				t.Fatalf("domain/create calls = %d; an ambiguous order must never be resent", script.count("domain/create"))
@@ -272,7 +272,7 @@ func TestBuyReconciliationNeverRetries(t *testing.T) {
 					t.Fatalf("error = %v", err)
 				}
 				data := result.Data.(map[string]any)
-				if data["reconciled"] != true || data["serviceId"] != "777" || data["userServid"] != "fedcba9876543210fedcba9876543210" {
+				if data["reconciled"] != true || data["serviceId"] != "777" || data["userServid"] != testUserServID {
 					t.Fatalf("data = %#v", data)
 				}
 				return
@@ -280,11 +280,62 @@ func TestBuyReconciliationNeverRetries(t *testing.T) {
 			cliErr := cliCode(t, err)
 			evidence, _ := cliErr.Details["evidence"].(Evidence)
 			if cliErr.Code != cli.CodeOutcomeUnknown || cliErr.ExitCode != cli.ExitOutcomeUnknown || evidence.ServiceLookup != testCase.lookup ||
-				evidence.UserServID != "fedcba9876543210fedcba9876543210" || evidence.BalanceChanged == nil || !*evidence.BalanceChanged || fake.calls != 2 {
+				evidence.UserServID != testUserServID || evidence.BalanceChanged == nil || !*evidence.BalanceChanged || fake.calls != 2 {
 				t.Fatalf("error = %#v evidence = %#v registry calls = %d", cliErr, evidence, fake.calls)
 			}
 		})
 	}
+}
+
+func TestBuyWithSuppliedUserServID(t *testing.T) {
+	const reused = "fedcba9876543210fedcba9876543210"
+	found := func(name string) []scripted {
+		return ok(`{"result":"success","answer":{"services":[{"service_id":"777","dname":"` + name + `","servtype":"domain","state":"N"}]}}`)
+	}
+	t.Run("landed order is reported before registry and balance checks", func(t *testing.T) {
+		script := newREGAPI(t, map[string][]scripted{"service/get_info": found("domkray.ru")})
+		fake := &fakeRegistry{states: []registry.State{registry.StateTaken}}
+		operation, _ := buyOperation(false, map[string][]string{"user-servid": {reused}})
+		result, err := testExecutor(t, script, fake, ownerSettings).Execute(context.Background(), operation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := result.Data.(map[string]any)
+		if data["reconciled"] != true || data["serviceId"] != "777" || fake.calls != 0 || len(script.calls) != 1 {
+			t.Fatalf("data = %#v registry = %d calls = %v", data, fake.calls, script.calls)
+		}
+	})
+	t.Run("service for another name is refused", func(t *testing.T) {
+		script := newREGAPI(t, map[string][]scripted{"service/get_info": found("other.ru")})
+		operation, _ := buyOperation(false, map[string][]string{"user-servid": {reused}})
+		_, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(context.Background(), operation)
+		if cliErr := cliCode(t, err); cliErr.Details["reason"] != "user_servid_conflict" || script.count("domain/create") != 0 {
+			t.Fatalf("error = %#v calls = %v", cliErr, script.calls)
+		}
+	})
+	t.Run("unused id proceeds with a normal purchase", func(t *testing.T) {
+		script := newREGAPI(t, map[string][]scripted{
+			"service/get_info":  ok(`{"result":"error","error_code":"SERVICE_NOT_FOUND"}`),
+			"domain/get_prices": ok(pricesBody), "user/get_balance": ok(balanceBody), "domain/create": ok(createBody),
+		})
+		operation, _ := buyOperation(false, map[string][]string{"user-servid": {reused}})
+		result, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(context.Background(), operation)
+		if err != nil || result.Data.(map[string]any)["userServid"] != reused || script.count("domain/create") != 1 {
+			t.Fatalf("err = %v calls = %v", err, script.calls)
+		}
+	})
+	t.Run("duplicate id for another name after dispatch is not a success", func(t *testing.T) {
+		script := newREGAPI(t, map[string][]scripted{
+			"domain/get_prices": ok(pricesBody), "user/get_balance": ok(balanceBody),
+			"domain/create":    ok(`{"result":"error","error_code":"USER_SERVID_IS_NOT_UNIQUE"}`),
+			"service/get_info": found("other.ru"),
+		})
+		operation, _ := buyOperation(false, nil)
+		_, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(context.Background(), operation)
+		if cliErr := cliCode(t, err); cliErr.Details["reason"] != "user_servid_conflict" || script.count("domain/create") != 1 {
+			t.Fatalf("error = %#v", cliErr)
+		}
+	})
 }
 
 func TestBuyPreconditionsStopBeforeREGAPI(t *testing.T) {

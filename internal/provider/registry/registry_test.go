@@ -311,3 +311,12 @@ func TestCheckerStopsRDAPAfterRateLimit(t *testing.T) {
 		t.Fatalf("requests = %d; RDAP must stop after a rate limit", requests.Load())
 	}
 }
+
+func TestNewCheckerAppliesProductionBudgets(t *testing.T) {
+	t.Parallel()
+
+	checker := NewChecker(Options{TCIConcurrency: 9})
+	if checker.options.TCISpacing != DefaultTCISpacing || checker.options.TCIConcurrency != 2 || checker.options.Timeout != DefaultTimeout {
+		t.Fatalf("options = %#v; unset options must keep the TCI budget", checker.options)
+	}
+}
