@@ -168,9 +168,9 @@ func serviceMatches(ctx context.Context, client *regapi.Client, info regapi.Serv
 	}
 	serviceID, found, err := client.DomainServiceID(ctx, name.ASCII)
 	switch {
-	case err != nil:
+	case err != nil || !found:
 		return matchUnknown
-	case !found || serviceID != info.ServiceID:
+	case serviceID != info.ServiceID:
 		return matchNo
 	default:
 		return matchYes

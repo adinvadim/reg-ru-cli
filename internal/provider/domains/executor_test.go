@@ -350,6 +350,7 @@ func TestBuyWithSuppliedUserServID(t *testing.T) {
 		{"service of another type conflicts", nil, cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
 		{"nameless service resolved by domain/nop", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"777"}}`), "", ""},
 		{"nameless service with another id conflicts", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"888"}}`), cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
+		{"nameless service with no domain/nop match stays unknown", ok(`{"result":"error","error_code":"DOMAIN_NOT_FOUND"}`), cli.CodeOutcomeUnknown, ""},
 		{"nameless service that cannot be resolved stays unknown", []scripted{{status: 500, body: "oops"}}, cli.CodeOutcomeUnknown, ""},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
