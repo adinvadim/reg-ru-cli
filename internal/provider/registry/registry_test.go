@@ -3,6 +3,7 @@ package registry
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -70,8 +71,9 @@ func TestParseTCI(t *testing.T) {
 	if state != StateTaken || record == nil || !record.PendingDelete {
 		t.Fatalf("pendingDelete = %s %#v; a pending-delete record is still taken", state, record)
 	}
-	if strings.Contains(record.Domain+record.State+record.Registrar, "Private Person") {
-		t.Fatal("contact data entered the record")
+	encoded, err := json.Marshal(record)
+	if err != nil || strings.Contains(string(encoded), "Private Person") {
+		t.Fatalf("contact data entered the record: %s (%v)", encoded, err)
 	}
 }
 

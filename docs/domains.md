@@ -84,8 +84,9 @@ Otherwise `registrar.reason` explains why it did not run
 `registrar_unavailable`, `credentials_unavailable`).
 
 `search` generates candidates deterministically: each Cyrillic word is
-transliterated with the primary table plus spellings that differ by one
-well-known substitution (`й` → `y|i|j`, `кс` → `ks|x`, `ы` → `y|i`, …, at
+transliterated with the primary table plus spellings that differ from the
+primary phrase by exactly one well-known substitution (never combined across
+words) (`й` → `y|i|j`, `кс` → `ks|x`, `ы` → `y|i`, …, at
 most four per word form); the caller can add forms with `a|b`. Words are
 joined and, for two or more words, hyphenated. `.рф` receives only all-Cyrillic
 input as typed. Ranking: the exact primary brand in the first zone, then zone

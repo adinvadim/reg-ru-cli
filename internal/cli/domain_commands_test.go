@@ -104,6 +104,18 @@ func TestDomainBuyDryRunMakesNoCallsAndShowsPlan(t *testing.T) {
 	}
 }
 
+func TestDomainNameserverDryRunMakesNoCalls(t *testing.T) {
+	calls := 0
+	executor := executorFunc(func(_ context.Context, _ Operation) (Result, error) {
+		calls++
+		return Result{}, nil
+	})
+	run := runCLI(t, nil, []string{"--json", "--account", "personal", "--dry-run", "domain", "ns", "set", "domkray.ru", "--ns", "nic"}, "", false, nil, executor)
+	if run.exitCode != ExitOK || calls != 0 || !strings.Contains(run.stdout, "ns8-cloud.nic.ru") {
+		t.Fatalf("exit = %d calls = %d stdout = %q", run.exitCode, calls, run.stdout)
+	}
+}
+
 func TestDomainBuyAppliesPolicyInsteadOfPrompt(t *testing.T) {
 	var received Operation
 	executor := executorFunc(func(_ context.Context, operation Operation) (Result, error) {

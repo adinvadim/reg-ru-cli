@@ -65,6 +65,9 @@ type regapiScript struct {
 type scripted struct {
 	status int
 	body   string
+	// onCall runs when the request arrives; hang then holds it until the client gives up.
+	onCall func()
+	hang   bool
 }
 
 func newREGAPI(t *testing.T, responses map[string][]scripted) *regapiScript {
@@ -89,6 +92,14 @@ func newREGAPI(t *testing.T, responses map[string][]scripted) *regapiScript {
 			script.responses[operation] = queue[1:]
 		}
 		script.mu.Unlock()
+		if response.onCall != nil {
+			response.onCall()
+		}
+		if response.hang {
+			_, _ = io.Copy(io.Discard, request.Body)
+			<-request.Context().Done()
+			return
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(response.status)
 		_, _ = io.WriteString(writer, response.body)
@@ -254,16 +265,16 @@ func TestBuyReconciliationNeverRetries(t *testing.T) {
 		committed bool
 		lookup    string
 	}{
-		{"ambiguous then found", scripted{502, "bad gateway"}, scripted{200, `{"result":"success","answer":{"services":[{"service_id":"777","dname":"domkray.ru","servtype":"domain","state":"N"}]}}`}, true, "found"},
-		{"duplicate user_servid proves dispatch", scripted{200, `{"result":"error","error_code":"USER_SERVID_IS_NOT_UNIQUE"}`}, scripted{200, `{"result":"success","answer":{"services":[{"service_id":"777","dname":"domkray.ru","servtype":"domain","state":"A"}]}}`}, true, "found"},
-		{"ambiguous and not found stays unknown", scripted{502, "bad gateway"}, scripted{200, `{"result":"error","error_code":"SERVICE_NOT_FOUND"}`}, false, "not_found"},
-		{"ambiguous and lookup fails stays unknown", scripted{502, "bad gateway"}, scripted{500, `oops`}, false, "failed"},
+		{"ambiguous then found", scripted{status: 502, body: "bad gateway"}, scripted{status: 200, body: `{"result":"success","answer":{"services":[{"service_id":"777","dname":"domkray.ru","servtype":"domain","state":"N"}]}}`}, true, "found"},
+		{"duplicate user_servid proves dispatch", scripted{status: 200, body: `{"result":"error","error_code":"USER_SERVID_IS_NOT_UNIQUE"}`}, scripted{status: 200, body: `{"result":"success","answer":{"services":[{"service_id":"777","dname":"domkray.ru","servtype":"domain","state":"A"}]}}`}, true, "found"},
+		{"ambiguous and not found stays unknown", scripted{status: 502, body: "bad gateway"}, scripted{status: 200, body: `{"result":"error","error_code":"SERVICE_NOT_FOUND"}`}, false, "not_found"},
+		{"ambiguous and lookup fails stays unknown", scripted{status: 502, body: "bad gateway"}, scripted{status: 500, body: `oops`}, false, "failed"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			script := newREGAPI(t, map[string][]scripted{
 				"domain/get_prices": ok(pricesBody),
-				"user/get_balance":  {{200, balanceBody}, {200, `{"result":"success","answer":{"currency":"RUR","prepay":"131.00"}}`}},
+				"user/get_balance":  {{status: 200, body: balanceBody}, {status: 200, body: `{"result":"success","answer":{"currency":"RUR","prepay":"131.00"}}`}},
 				"domain/create":     {testCase.create}, "service/get_info": {testCase.info},
 			})
 			fake := &fakeRegistry{}
@@ -339,7 +350,7 @@ func TestBuyWithSuppliedUserServID(t *testing.T) {
 		{"service of another type conflicts", nil, cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
 		{"nameless service resolved by domain/nop", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"777"}}`), "", ""},
 		{"nameless service with another id conflicts", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"888"}}`), cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
-		{"nameless service that cannot be resolved stays unknown", []scripted{{500, "oops"}}, cli.CodeOutcomeUnknown, ""},
+		{"nameless service that cannot be resolved stays unknown", []scripted{{status: 500, body: "oops"}}, cli.CodeOutcomeUnknown, ""},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			info := nameless
@@ -376,6 +387,36 @@ func TestBuyWithSuppliedUserServID(t *testing.T) {
 			t.Fatalf("error = %#v", cliErr)
 		}
 	})
+}
+
+func TestBuyInterruptedDuringDispatchReconcilesOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	script := newREGAPI(t, map[string][]scripted{
+		"domain/get_prices": ok(pricesBody), "user/get_balance": ok(balanceBody),
+		"domain/create":    {{hang: true, onCall: cancel}},
+		"service/get_info": ok(`{"result":"success","answer":{"services":[{"service_id":"777","dname":"domkray.ru","servtype":"domain","state":"N"}]}}`),
+	})
+	operation, _ := buyOperation(false, nil)
+	result, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(ctx, operation)
+	if err != nil {
+		t.Fatalf("error = %v; reconciliation must outlive the interrupt", err)
+	}
+	if result.Data.(map[string]any)["reconciled"] != true || script.count("domain/create") != 1 {
+		t.Fatalf("data = %#v calls = %v", result.Data, script.calls)
+	}
+}
+
+func TestNameserverAmbiguityIsOutcomeUnknownAndNotResent(t *testing.T) {
+	script := newREGAPI(t, map[string][]scripted{"domain/update_nss": {{status: 502, body: "bad gateway"}}})
+	_, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(context.Background(), cli.Operation{
+		Capability: "domain.ns", Action: "domain.ns.set", Account: "personal", ProfileID: testProfileID,
+		Arguments: []string{"domkray.ru"}, Parameters: map[string][]string{"ns": {"nic"}},
+		RequestTimeout: time.Second, Credentials: &fakeCredentials{},
+	})
+	if cliErr := cliCode(t, err); cliErr.Code != cli.CodeOutcomeUnknown || script.count("domain/update_nss") != 1 {
+		t.Fatalf("error = %#v calls = %v", cliErr, script.calls)
+	}
 }
 
 func TestBuyPreconditionsStopBeforeREGAPI(t *testing.T) {
