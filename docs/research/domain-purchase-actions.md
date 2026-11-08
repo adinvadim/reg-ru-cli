@@ -40,16 +40,16 @@ about 30 minutes after the NS change was saved.
 | 17:35 | Owner: "buy the domain and set it up". `regru` has no domain commands; `regru --account work billing balance` returns only CloudVPS (`REG.API balance is unavailable`). |
 | 17:37–17:41 | Agent 1 (work REG.RU account, Chrome): the cart auto-added a second domain (`domkray.online` "for 1 ₽"); agent removed it, cart = 169 ₽. Login then failed: «Неверная почта/логин или пароль». The 1Password password for the work account was stale. |
 | 17:42–17:44 | Orchestrator tries REG.API directly with the work account's `regapi.*` fields: `user/get_balance`, `domain/check`, price → all `ACCESS_DENIED_FROM_IP`, from the Mac, from the Coolify host and from the production server. `regru --account work auth status` → `browser_session_interrupted`, so the egress-IP sync of commit `006bbd7` (which only runs after a successful `auth login`/`auth refresh`) never had a chance to whitelist anything. |
-| 18:15–18:17 | To make room on NIC: the DNS-hosting service `DP2510072361` (tariff DNS-master L+) was at `domains-num 12 / domains-limit 12`. Orchestrator backed up the dead `novostroy.ai` zone (its live NS are on Cloudflare) to XML, deleted it, created zone `domkray.ru` via raw NIC API `PUT /services/{svc}/zones/domkray.ru`, then `nic-dns add … A @` and `A www` → Coolify host, `nic-dns commit`. The new zone's NS RRs were exactly `ns3-l2, ns4-cloud, ns4-l2, ns8-cloud, ns8-l2 .nic.ru`. `dig A @ns*.nic.ru` returned empty for at least 60 s after commit (and still empty at 18:52, see Unknowns). |
+| 18:15–18:17 | To make room on NIC: the DNS-hosting service `<NIC-service>` (tariff DNS-master L+) was at `domains-num 12 / domains-limit 12`. Orchestrator backed up the dead `novostroy.ai` zone (its live NS are on Cloudflare) to XML, deleted it, created zone `domkray.ru` via raw NIC API `PUT /services/{svc}/zones/domkray.ru`, then `nic-dns add … A @` and `A www` → Coolify host, `nic-dns commit`. The new zone's NS RRs were exactly `ns3-l2, ns4-cloud, ns4-l2, ns8-cloud, ns8-l2 .nic.ru`. `dig A @ns*.nic.ru` returned empty for at least 60 s after commit (and still empty at 18:52, see Unknowns). |
 | 18:18–18:20 | Agent 2 (NIC portal, contract login): «Введен некорректный логин или пароль»; by e-mail: «Некорректный договор». Stale password again. |
 | 18:21 | Orchestrator tries the personal account's REG.API fields: again `ACCESS_DENIED_FROM_IP`. |
 | 18:21–18:22 | Agent 3 (personal REG.RU, Chrome): login OK, admin profile present, price 169 ₽, **balance 0 ₽** → stopped before checkout. |
-| 18:24–18:26 | Agent 4 prepared (did not pay) a 300 ₽ balance refill: Balance → refill → amount → method SBP → **unticked "remember payment method"** → one-off SBP QR + link (refill order 223504751, PayMaster cashier, no expiry shown). Orchestrator relayed QR to the owner. |
+| 18:24–18:26 | Agent 4 prepared (did not pay) a 300 ₽ balance refill: Balance → refill → amount → method SBP → **unticked "remember payment method"** → one-off SBP QR + link (refill order <refill-order>, PayMaster cashier, no expiry shown). Orchestrator relayed QR to the owner. |
 | 18:31 | Owner: "Готово". |
 | 18:31–18:33 | Agent 5: balance shows 300 ₽. Search `domkray.ru` → cart. Cart cleanup took ~12 clicks: an auto-added extra domain (`domkray.online` 1 ₽), a pre-selected «Рег.решение "Домен плюс"» bundle, «Антивирус для сайта» 1 ₽, «Хостинг Хост-0» 1 ₽ trial, «Конструктор сайтов» 1 ₽ trial, «Пакет "Старт"» 359 ₽. One mis-click flipped the order to «Сайт под ключ. Старт» at **10 940 ₽** before it was reverted. Final cart: `domkray.ru`, 1 year, 169 ₽. Existing admin profile selected; it showed «Не пройдена идентификация данных». Agent stopped before «Оплатить» because its Computer Use policy demands confirmation immediately before a financial action. |
 | 18:35 | Owner: «оплачивай 169». The confirmation reached the orchestrator, not the agent, so the agent stopped again; the orchestrator relayed the exact words into the agent's thread. |
-| 18:36:37 | «Оплатить» **creates the order immediately** («Создание счёта в процессе»), then shows a payment-method page for order **223505019**, 169.00 ₽: two saved cards, SBP, bank card, YooMoney, SberPay, cash, «Баланс личного кабинета». The card/SBP rows carry a **pre-ticked** «Запомнить карту для оплаты и автопродления услуг». Agent chose balance; no further confirm screen. |
-| 18:36:52 | Registry `created` timestamp. Page: «Заказ №223505019 оплачен». Balance 300 → 131 ₽. **Payment and registration succeeded with the administrator unidentified.** |
+| 18:36:37 | «Оплатить» **creates the order immediately** («Создание счёта в процессе»), then shows a payment-method page for order **<order>**, 169.00 ₽: two saved cards, SBP, bank card, YooMoney, SberPay, cash, «Баланс личного кабинета». The card/SBP rows carry a **pre-ticked** «Запомнить карту для оплаты и автопродления услуг». Agent chose balance; no further confirm screen. |
+| 18:36:52 | Registry `created` timestamp. Page: «Заказ №<order> оплачен». Balance 300 → 131 ₽. **Payment and registration succeeded with the administrator unidentified.** |
 | 18:37 | Domain card: «Активна. Требуется пройти идентификацию», paid till 07.11.2027, **auto-renew already on** («Следующее автопродление 24.10.2027», needs card or balance). REG.RU's free zone on `ns1/ns2.reg.ru` was pre-filled with parking `A @`/`A www` → a REG.RU IP. Renewal price was not shown anywhere the agent looked. |
 | 18:37 | Opening «DNS-серверы» → modal «Необходимо подтверждение данных»: without Gosuslugi identification, «продление домена; управление делегированием; изменение контактных данных администратора; перенос домена к другому регистратору; аннулирование домена» will be blocked; «рассмотрение заявки … может занимать несколько дней». Buttons: «Пройти идентификацию» and **«Принять риск и продолжить»**. The agent treated this as a block (its brief said not to work around identification) and went to identification. |
 | 18:37–18:40 | Identification page: account-owner data equals admin data, so identifying the account owner identifies the admin automatically. Redirect to Gosuslugi (`reg.ru/auth/esia-redirects/initialize?actionName=identification…`). Login/password from 1Password accepted; Gosuslugi then asked for a one-time code. Agent stopped. |
@@ -224,7 +224,7 @@ delete-zone command** — on 11-07 both were raw `api_request("PUT"|"DELETE",
 the new zone's own NS RRs rather than hard-coding; on 11-07 they were
 `ns3-l2.nic.ru, ns4-l2.nic.ru, ns8-l2.nic.ru, ns4-cloud.nic.ru,
 ns8-cloud.nic.ru`. Preconditions: free slot in a service
-(`domains-num < domains-limit`; `DP2510072361` was 12/12). Failure modes:
+(`domains-num < domains-limit`; `<NIC-service>` was 12/12). Failure modes:
 service full; deleting the wrong zone (11-07 verified `dig NS novostroy.ai`
 pointed at Cloudflare and saved an XML backup to
 `~/sandbox/data/nic-zone-backups/` first); token expiry; forgetting commit.
@@ -295,7 +295,7 @@ money bounds that are checked against the live quote **after** the quote and
 
 A standing agent authorization can then be expressed as one command line,
 for example `regru --account personal --no-input --force domain buy
-domkray.ru --max-price 300 --max-renewal 500 --ns-from-nic DP2510072361`,
+domkray.ru --max-price 300 --max-renewal 500 --ns-from-nic <NIC-service>`,
 and the owner's "yes" is the cap values rather than a click relayed between
 threads, which is what went wrong at 18:35.
 
