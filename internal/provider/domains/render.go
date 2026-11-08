@@ -1,6 +1,7 @@
 package domains
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -205,4 +206,50 @@ func renderNameservers(name domain.Name, nameservers []string, update regapi.Nam
 
 func escape(value string) string {
 	return strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`).Replace(value)
+}
+
+// confirmNameservers reads domain/get_nss after a successful mutation and
+// records whether REG.API now holds exactly the requested set. The read is
+// advisory: it never turns a committed mutation into a failure.
+func confirmNameservers(ctx context.Context, client *regapi.Client, name domain.Name, requested []string, result *cli.Result) {
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		return
+	}
+	actual, err := client.GetNameservers(ctx, name.ASCII)
+	if err != nil {
+		data["nameserversConfirmed"] = nil
+		result.Warnings = append(result.Warnings, cli.Warning{
+			Code: "nameservers_unverified", Message: "domain/get_nss could not confirm the nameservers; check them before relying on delegation",
+		})
+		return
+	}
+	data["nameserversReported"] = actual
+	same := sameHostSet(requested, actual)
+	data["nameserversConfirmed"] = same
+	if !same {
+		result.Warnings = append(result.Warnings, cli.Warning{
+			Code: "nameservers_mismatch", Message: "REG.API reports a different nameserver set than requested; see nameserversReported",
+		})
+	}
+}
+
+func sameHostSet(first, second []string) bool {
+	normalize := func(values []string) map[string]bool {
+		set := make(map[string]bool, len(values))
+		for _, value := range values {
+			set[strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")] = true
+		}
+		return set
+	}
+	left, right := normalize(first), normalize(second)
+	if len(left) != len(right) {
+		return false
+	}
+	for host := range left {
+		if !right[host] {
+			return false
+		}
+	}
+	return true
 }

@@ -304,6 +304,35 @@ func (c *Client) DomainServiceID(ctx context.Context, name string) (string, bool
 	return serviceID, true, nil
 }
 
+// GetNameservers reads the delegation REG.API holds for one domain.
+func (c *Client) GetNameservers(ctx context.Context, name string) ([]string, error) {
+	raw, err := c.call(ctx, "domain/get_nss", map[string]any{"domain_name": name}, false)
+	if err != nil {
+		return nil, err
+	}
+	var answer struct {
+		Domains *[]struct {
+			Name      string `json:"dname"`
+			ErrorCode string `json:"error_code"`
+			NSS       []struct {
+				NS string `json:"ns"`
+			} `json:"nss"`
+		} `json:"domains"`
+	}
+	if err := json.Unmarshal(raw, &answer); err != nil || answer.Domains == nil || len(*answer.Domains) != 1 {
+		return nil, &ContractError{Message: "decode REG.API domain/get_nss response"}
+	}
+	item := (*answer.Domains)[0]
+	if item.ErrorCode != "" || !sameDomain(item.Name, name) {
+		return nil, &ContractError{Message: "REG.API domain/get_nss did not answer for the domain"}
+	}
+	hosts := make([]string, 0, len(item.NSS))
+	for _, entry := range item.NSS {
+		hosts = append(hosts, strings.ToLower(entry.NS))
+	}
+	return hosts, nil
+}
+
 // ListDomains returns the current domain services of the account.
 func (c *Client) ListDomains(ctx context.Context) ([]ServiceInfo, error) {
 	raw, err := c.call(ctx, "service/get_list", map[string]any{"servtype": "domain"}, false)

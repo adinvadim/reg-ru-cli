@@ -260,7 +260,9 @@ func (e *Executor) setNameservers(ctx context.Context, operation cli.Operation) 
 	if err != nil {
 		return cli.Result{}, translateError(operation, err)
 	}
-	return renderNameservers(name, nameservers, update), nil
+	result := renderNameservers(name, nameservers, update)
+	confirmNameservers(ctx, client, name, nameservers, &result)
+	return result, nil
 }
 
 func (e *Executor) account(operation cli.Operation) (profile.Account, error) {

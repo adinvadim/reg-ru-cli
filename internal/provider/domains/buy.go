@@ -107,7 +107,9 @@ func (e *Executor) buy(ctx context.Context, operation cli.Operation) (cli.Result
 		Nameservers: nameservers, UserServID: plan.userServID,
 	})
 	if err == nil {
-		return renderPurchase(plan, created, nil), nil
+		result := renderPurchase(plan, created, nil)
+		confirmNameservers(ctx, client, plan.name, plan.nameservers, &result)
+		return result, nil
 	}
 	return e.purchaseFailure(ctx, operation, client, plan, err)
 }
@@ -150,12 +152,17 @@ const (
 // requested name. service/get_info may omit dname; then domain/nop resolves
 // the name to the account's service ID. Anything unresolved stays unknown.
 func serviceMatches(ctx context.Context, client *regapi.Client, info regapi.ServiceInfo, name domain.Name) match {
+	if info.ServType != "" && info.ServType != "domain" {
+		return matchNo
+	}
 	if info.Name != "" {
 		parsed, err := domain.Parse(info.Name)
-		if err == nil && parsed.ASCII == name.ASCII {
+		if err != nil || parsed.ASCII != name.ASCII {
+			return matchNo
+		}
+		if info.ServType == "domain" {
 			return matchYes
 		}
-		return matchNo
 	}
 	serviceID, found, err := client.DomainServiceID(ctx, name.ASCII)
 	switch {

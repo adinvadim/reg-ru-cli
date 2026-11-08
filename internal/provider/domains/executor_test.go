@@ -22,6 +22,7 @@ const (
 	testUserServID = "0123456789abcdef0123456789abcdef"
 	pricesBody     = `{"result":"success","answer":{"currency":"RUR","prices":{"ru":{"reg_price":169,"renew_price":1199,"reg_min_period":1},"com":{"reg_price":1905,"renew_price":1905},"su":{"reg_price":669}}}}`
 	balanceBody    = `{"result":"success","answer":{"currency":"RUR","prepay":"300.00"}}`
+	nicNSSBody     = `{"result":"success","answer":{"domains":[{"dname":"domkray.ru","nss":[{"ns":"ns3-l2.nic.ru"},{"ns":"ns4-l2.nic.ru"},{"ns":"ns8-l2.nic.ru"},{"ns":"ns4-cloud.nic.ru"},{"ns":"ns8-cloud.nic.ru."}]}]}}`
 	createBody     = `{"result":"success","answer":{"bill_id":"55","payment":"169","pay_type":"prepay","domains":[{"dname":"domkray.ru","result":"success","service_id":"777"}]}}`
 )
 
@@ -68,6 +69,9 @@ type scripted struct {
 
 func newREGAPI(t *testing.T, responses map[string][]scripted) *regapiScript {
 	t.Helper()
+	if _, exists := responses["domain/get_nss"]; !exists {
+		responses["domain/get_nss"] = ok(nicNSSBody)
+	}
 	script := &regapiScript{t: t, responses: responses}
 	script.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		operation := strings.TrimPrefix(request.URL.Path, "/api/regru2/")
@@ -162,7 +166,8 @@ func TestBuyWithinCapsProceedsWithoutPromptAndSendsOnce(t *testing.T) {
 		t.Fatalf("buy error = %v", err)
 	}
 	data := result.Data.(map[string]any)
-	if data["serviceId"] != "777" || data["outcome"] != "committed" || data["userServid"] != testUserServID || data["reconciled"] != false {
+	if data["serviceId"] != "777" || data["outcome"] != "committed" || data["userServid"] != testUserServID || data["reconciled"] != false ||
+		data["nameserversConfirmed"] != true || len(result.Warnings) != 0 {
 		t.Fatalf("data = %#v", data)
 	}
 	if script.count("domain/create") != 1 {
@@ -331,12 +336,17 @@ func TestBuyWithSuppliedUserServID(t *testing.T) {
 		code   string
 		reason string
 	}{
+		{"service of another type conflicts", nil, cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
 		{"nameless service resolved by domain/nop", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"777"}}`), "", ""},
 		{"nameless service with another id conflicts", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"888"}}`), cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
 		{"nameless service that cannot be resolved stays unknown", []scripted{{500, "oops"}}, cli.CodeOutcomeUnknown, ""},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			script := newREGAPI(t, map[string][]scripted{"service/get_info": nameless, "domain/nop": testCase.nop})
+			info := nameless
+			if testCase.nop == nil {
+				info = ok(`{"result":"success","answer":{"services":[{"service_id":"777","dname":"domkray.ru","servtype":"srv_hosting_ispmgr","state":"A"}]}}`)
+			}
+			script := newREGAPI(t, map[string][]scripted{"service/get_info": info, "domain/nop": testCase.nop})
 			operation, _ := buyOperation(false, map[string][]string{"user-servid": {reused}})
 			result, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(context.Background(), operation)
 			if script.count("domain/create") != 0 {
@@ -405,6 +415,19 @@ func TestBuyAndNameserverIdentificationErrorsAreTyped(t *testing.T) {
 	_, err := executor.Execute(context.Background(), operation)
 	if cliErr := cliCode(t, err); cliErr.Code != cli.CodeIdentificationRequired || cliErr.Details["url"] != cli.IdentificationURL {
 		t.Fatalf("buy error = %#v", cliErr)
+	}
+
+	mismatch := newREGAPI(t, map[string][]scripted{
+		"domain/update_nss": ok(`{"result":"success","answer":{"domains":[{"dname":"domkray.ru","result":"success","service_id":"777"}]}}`),
+		"domain/get_nss":    ok(`{"result":"success","answer":{"domains":[{"dname":"domkray.ru","nss":[{"ns":"ns3-l2.nic.ru"},{"ns":"ns4-l2.nic.ru"},{"ns":"ns8-l2.nic.ru"},{"ns":"ns4-cloud.nic.ru"}]}]}}`),
+	})
+	nsResult, err := testExecutor(t, mismatch, &fakeRegistry{}, ownerSettings).Execute(context.Background(), cli.Operation{
+		Capability: "domain.ns", Action: "domain.ns.set", Account: "personal", ProfileID: testProfileID,
+		Arguments: []string{"domkray.ru"}, Parameters: map[string][]string{"ns": {"nic"}},
+		RequestTimeout: time.Second, Credentials: &fakeCredentials{},
+	})
+	if err != nil || nsResult.Data.(map[string]any)["nameserversConfirmed"] != false || len(nsResult.Warnings) != 1 || nsResult.Warnings[0].Code != "nameservers_mismatch" {
+		t.Fatalf("truncated nameserver set was not reported: %#v %v", nsResult, err)
 	}
 
 	nsOperation := cli.Operation{

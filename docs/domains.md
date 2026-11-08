@@ -26,7 +26,12 @@ regru domain ns set <name> --ns nic|<ns1,ns2,...>
 
 `--ns nic` expands to `ns3-l2.nic.ru, ns4-l2.nic.ru, ns8-l2.nic.ru,
 ns4-cloud.nic.ru, ns8-cloud.nic.ru`. A custom list takes 2–8 distinct
-hostnames.
+hostnames, sent as the `nss` hash `ns0`, `ns1`, …. REG.API documents only
+`ns0`–`ns3`, so after a successful `buy` or `ns set` the CLI reads
+`domain/get_nss` and reports `nameserversReported` and
+`nameserversConfirmed`; a different set adds the `nameservers_mismatch`
+warning, a failed read adds `nameservers_unverified`. The read never turns a
+committed order into a failure.
 
 ## Names and IDN
 
