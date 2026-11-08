@@ -80,6 +80,13 @@ s3_key_pair_id = "42"
 
 [accounts.personal.credential_process]
 command = ["/usr/local/bin/credential-helper", "get", "personal"]
+
+[accounts.personal.domain]
+contact_profile_type = "RU.PP"
+contact_profile_name = "Owner"
+max_price = "500"
+max_renewal = "1500"
+registrar_check = false
 ```
 
 Writes use a private directory, a mode-0600 same-directory temporary file,
@@ -109,6 +116,15 @@ The optional `cloud` fields are private routing metadata, not credentials.
 than one. `s3_key_pair_id` selects one provider key set when several exist.
 `s3_endpoint` and `s3_signing_region` are user-only compatibility overrides;
 they cannot be supplied by a project checkout or normal command flags.
+
+The optional `domain` fields are non-secret purchase settings. The contact
+profile type and name select a REG.RU contact profile created in the web
+cabinet and must be set together; the type is one of `GTLD`, `EU`, `TJ`,
+`RU.PP`, `RU.ORG`, `NEWTCI.ORG`, `NEWTCI.PP`. `max_price` and `max_renewal`
+are rouble caps for an unattended `domain buy` (defaults 500 and 1500).
+`registrar_check` enables the partner-only REG.API `domain/check`
+confirmation during `domain search` and `domain check`. A project checkout
+cannot set any of them. See the [domain command guide](domains.md).
 
 ## Selection and commands
 

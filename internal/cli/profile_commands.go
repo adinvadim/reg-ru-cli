@@ -327,6 +327,7 @@ func localCapabilityStates(account profile.Account) map[string]string {
 		}
 		return "not_configured"
 	}
+	regapi := account.Credentials.REGAPIRef != "" || len(account.CredentialProcess.Command) > 0
 	return map[string]string{
 		"auth.portal_session": state(account.Portal.SessionRef != ""),
 		"cloudvps.instances": state(
@@ -342,7 +343,13 @@ func localCapabilityStates(account profile.Account) map[string]string {
 			account.Credentials.S3Ref != "" ||
 				account.Portal.SessionRef != "",
 		),
-		"support.private": state(account.Portal.SessionRef != ""),
+		"support.private":        state(account.Portal.SessionRef != ""),
+		"domain.search":          "configured",
+		"domain.registrar_check": state(regapi && account.Domain.RegistrarCheck),
+		"domain.quote":           state(regapi),
+		"domain.list":            state(regapi),
+		"domain.ns":              state(regapi),
+		"domain.buy":             state(regapi && account.Domain.ContactProfileName != ""),
 	}
 }
 

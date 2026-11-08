@@ -26,6 +26,10 @@ type commandSpec struct {
 	input        func() InputResolver
 	noWait       func() bool
 	confirmation string
+	// accountOptional commands run without a selected account.
+	accountOptional bool
+	selfConfirmed   bool
+	dryRunPlan      func() dryRunPlan
 }
 
 func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
@@ -35,8 +39,10 @@ func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
 		Short:   spec.short,
 		Args:    spec.args,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.requireAccount(); err != nil {
-				return err
+			if !spec.accountOptional {
+				if err := app.requireAccount(); err != nil {
+					return err
+				}
 			}
 			if spec.interactive &&
 				!app.flags.dryRun &&
@@ -74,7 +80,15 @@ func newOperationCommand(app *appRuntime, spec commandSpec) *cobra.Command {
 				operation.NoWait = spec.noWait()
 			}
 			return runWithTimeout(cmd.Context(), timeout, func(ctx context.Context) error {
-				return app.executeOperation(ctx, operation, spec.mutating, spec.confirmation)
+				if spec.accountOptional {
+					return app.executeAccountOptional(ctx, operation)
+				}
+				return app.executeOperation(ctx, operation, executionPolicy{
+					mutating:      spec.mutating,
+					selfConfirmed: spec.selfConfirmed,
+					confirmation:  spec.confirmation,
+					dryRunPlan:    spec.dryRunPlan,
+				})
 			})
 		},
 	}
