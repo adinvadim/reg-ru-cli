@@ -110,8 +110,6 @@ func TestParseRDAP(t *testing.T) {
 
 type whoisServer struct {
 	listener  net.Listener
-	mu        sync.Mutex
-	starts    []time.Time
 	active    atomic.Int32
 	maxActive atomic.Int32
 	queries   atomic.Int32
@@ -149,9 +147,6 @@ func (s *whoisServer) serve(conn net.Conn) {
 			break
 		}
 	}
-	s.mu.Lock()
-	s.starts = append(s.starts, time.Now())
-	s.mu.Unlock()
 	line, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		return
@@ -174,6 +169,19 @@ func mustNames(t *testing.T, values ...string) []domain.Name {
 	return names
 }
 
+type recordingDialer struct {
+	mu     sync.Mutex
+	starts []time.Time
+	dialer net.Dialer
+}
+
+func (d *recordingDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	d.mu.Lock()
+	d.starts = append(d.starts, time.Now())
+	d.mu.Unlock()
+	return d.dialer.DialContext(ctx, network, address)
+}
+
 func TestCheckerRespectsTCIConcurrencyAndSpacing(t *testing.T) {
 	t.Parallel()
 
@@ -184,7 +192,8 @@ func TestCheckerRespectsTCIConcurrencyAndSpacing(t *testing.T) {
 		return tciMiss
 	})
 	spacing := 30 * time.Millisecond
-	checker := NewChecker(Options{TCIAddress: server.listener.Addr().String(), TCISpacing: spacing, TCIConcurrency: 5})
+	dialer := &recordingDialer{}
+	checker := NewChecker(Options{TCIAddress: server.listener.Addr().String(), Dialer: dialer, TCISpacing: spacing, TCIConcurrency: 5})
 	names := mustNames(t, "domkray.ru", "aaa1.ru", "aaa2.ru", "домкрай.рф", "aaa3.su", "aaa4.ru")
 	verdicts := checker.Check(context.Background(), names)
 
@@ -199,10 +208,13 @@ func TestCheckerRespectsTCIConcurrencyAndSpacing(t *testing.T) {
 	if got := server.maxActive.Load(); got > 2 {
 		t.Fatalf("max concurrent TCI connections = %d, want <= 2", got)
 	}
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	for index := 1; index < len(server.starts); index++ {
-		if gap := server.starts[index].Sub(server.starts[index-1]); gap < spacing-5*time.Millisecond {
+	dialer.mu.Lock()
+	defer dialer.mu.Unlock()
+	if len(dialer.starts) != len(names) {
+		t.Fatalf("dials = %d, want %d", len(dialer.starts), len(names))
+	}
+	for index := 1; index < len(dialer.starts); index++ {
+		if gap := dialer.starts[index].Sub(dialer.starts[index-1]); gap < spacing {
 			t.Fatalf("connection %d started %s after the previous one, want >= %s", index, gap, spacing)
 		}
 	}

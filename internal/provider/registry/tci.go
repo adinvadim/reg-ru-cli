@@ -98,13 +98,14 @@ func parseTCI(query string, reply []byte) tciOutcome {
 	return tciOutcome{state: StateUnknown, reason: ReasonUnrecognised, unexpected: true}
 }
 
-// tciGate enforces the TCI budget: at most N connections and a process-wide
-// spacing between connection starts.
+// tciGate enforces the TCI budget for one lookup run: at most N open
+// connections and real spacing between consecutive connection starts.
 type tciGate struct {
 	slots   chan struct{}
-	mu      sync.Mutex
+	starts  chan struct{}
 	next    time.Time
 	spacing time.Duration
+	mu      sync.Mutex
 	stopped bool
 }
 
@@ -112,7 +113,7 @@ func newTCIGate(concurrency int, spacing time.Duration) *tciGate {
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	return &tciGate{slots: make(chan struct{}, concurrency), spacing: spacing}
+	return &tciGate{slots: make(chan struct{}, concurrency), starts: make(chan struct{}, 1), spacing: spacing}
 }
 
 func (g *tciGate) acquire(ctx context.Context) error {
@@ -121,15 +122,14 @@ func (g *tciGate) acquire(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	g.mu.Lock()
-	now := time.Now()
-	start := g.next
-	if start.Before(now) {
-		start = now
+	select {
+	case g.starts <- struct{}{}:
+	case <-ctx.Done():
+		<-g.slots
+		return ctx.Err()
 	}
-	g.next = start.Add(g.spacing)
-	g.mu.Unlock()
-	if wait := time.Until(start); wait > 0 {
+	defer func() { <-g.starts }()
+	if wait := time.Until(g.next); wait > 0 {
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {
@@ -139,6 +139,7 @@ func (g *tciGate) acquire(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
+	g.next = time.Now().Add(g.spacing)
 	return nil
 }
 
