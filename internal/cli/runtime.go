@@ -232,17 +232,34 @@ func (r *appRuntime) confirmWithMessage(action, message string) error {
 	}
 }
 
+type executionPolicy struct {
+	mutating bool
+	// selfConfirmed mutations skip the TTY prompt because the executor applies
+	// its own policy (for example spending caps) after reading live state.
+	selfConfirmed bool
+	confirmation  string
+	dryRunPlan    func() map[string]any
+}
+
 func (r *appRuntime) executeOperation(
 	ctx context.Context,
 	operation Operation,
-	mutating bool,
-	confirmation string,
+	policy executionPolicy,
 ) error {
 	if err := r.requireAccount(); err != nil {
 		return err
 	}
 
-	if r.flags.dryRun && mutating {
+	if r.flags.dryRun && policy.mutating {
+		data := map[string]any{
+			"dry_run":        true,
+			"account":        operation.Account,
+			"action":         operation.Action,
+			"argument_count": len(operation.Arguments),
+		}
+		if policy.dryRunPlan != nil {
+			data["plan"] = policy.dryRunPlan()
+		}
 		return r.writeResult(Result{
 			Human: fmt.Sprintf("Would run %s for account %s", operation.Action, operation.Account),
 			Plain: []string{
@@ -253,20 +270,43 @@ func (r *appRuntime) executeOperation(
 					len(operation.Arguments),
 				),
 			},
-			Data: map[string]any{
-				"dry_run":        true,
-				"account":        operation.Account,
-				"action":         operation.Action,
-				"argument_count": len(operation.Arguments),
-			},
+			Data: data,
 		})
 	}
 
-	if mutating {
-		if err := r.confirmWithMessage(operation.Action, confirmation); err != nil {
+	if policy.mutating && !policy.selfConfirmed {
+		if err := r.confirmWithMessage(operation.Action, policy.confirmation); err != nil {
 			return err
 		}
 	}
+	r.attachCredentials(&operation)
+	result, err := r.executor.Execute(ctx, operation)
+	if err != nil {
+		return err
+	}
+	return r.writeResult(result)
+}
+
+// executeAccountOptional runs a read that needs no account. When an account
+// is selected it is validated and its lazy credentials are attached so the
+// executor may use an optional, account-gated enrichment.
+func (r *appRuntime) executeAccountOptional(ctx context.Context, operation Operation) error {
+	if strings.TrimSpace(r.flags.account) != "" {
+		if err := r.requireAccount(); err != nil {
+			return err
+		}
+		r.attachCredentials(&operation)
+	} else {
+		operation.Account = ""
+	}
+	result, err := r.executor.Execute(ctx, operation)
+	if err != nil {
+		return err
+	}
+	return r.writeResult(result)
+}
+
+func (r *appRuntime) attachCredentials(operation *Operation) {
 	if r.credentials == nil {
 		credentialTimeout := r.flags.timeout
 		if credentialTimeout > maxCredentialTime {
@@ -280,10 +320,4 @@ func (r *appRuntime) executeOperation(
 	operation.ProfileID = r.profile.ID
 	operation.Force = r.flags.force
 	operation.Credentials = r.credentials
-
-	result, err := r.executor.Execute(ctx, operation)
-	if err != nil {
-		return err
-	}
-	return r.writeResult(result)
 }

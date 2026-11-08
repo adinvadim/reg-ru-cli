@@ -170,3 +170,47 @@ func writeTestConfig(t *testing.T, path, content string) {
 		t.Fatalf("WriteFile(): %v", err)
 	}
 }
+
+func TestRepositoryValidatesDomainSettings(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	userPath := filepath.Join(root, "config.toml")
+	base := `
+schema_version = 1
+
+[accounts.personal]
+id = "p_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+provider = "reg.ru"
+
+[accounts.personal.domain]
+`
+	writeTestConfig(t, userPath, base+`contact_profile_type = "RU.PP"
+contact_profile_name = "owner"
+max_price = "300"
+max_renewal = "1499.50"
+registrar_check = true
+`)
+	config, err := NewFileRepository(userPath, "").Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	settings := config.Accounts["personal"].Domain
+	if settings.ContactProfileType != "RU.PP" || settings.ContactProfileName != "owner" ||
+		settings.MaxPrice != "300" || settings.MaxRenewal != "1499.50" || !settings.RegistrarCheck {
+		t.Fatalf("domain settings = %#v", settings)
+	}
+
+	for _, invalid := range []string{
+		`contact_profile_type = "PASSPORT"` + "\ncontact_profile_name = \"owner\"\n",
+		`contact_profile_type = "RU.PP"` + "\n",
+		`max_price = "-1"` + "\n",
+		`max_renewal = "1e3"` + "\n",
+		`unknown_field = "x"` + "\n",
+	} {
+		writeTestConfig(t, userPath, base+invalid)
+		if _, err := NewFileRepository(userPath, "").Load(); err == nil {
+			t.Errorf("domain settings %q were accepted", invalid)
+		}
+	}
+}

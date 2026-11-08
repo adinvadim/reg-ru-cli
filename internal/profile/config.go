@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -40,6 +41,18 @@ type Account struct {
 	Cloud             Cloud             `toml:"cloud,omitempty" json:"-"`
 	Credentials       Credentials       `toml:"credentials,omitempty" json:"-"`
 	CredentialProcess CredentialProcess `toml:"credential_process,omitempty" json:"-"`
+	Domain            Domain            `toml:"domain,omitempty" json:"-"`
+}
+
+// Domain holds non-secret settings for domain registration: the saved REG.RU
+// contact profile used by domain/create, the unattended spending caps in
+// roubles, and whether the account may use the partner-only domain/check.
+type Domain struct {
+	ContactProfileType string `toml:"contact_profile_type,omitempty" json:"-"`
+	ContactProfileName string `toml:"contact_profile_name,omitempty" json:"-"`
+	MaxPrice           string `toml:"max_price,omitempty" json:"-"`
+	MaxRenewal         string `toml:"max_renewal,omitempty" json:"-"`
+	RegistrarCheck     bool   `toml:"registrar_check,omitempty" json:"-"`
 }
 
 type Portal struct {
@@ -97,7 +110,12 @@ func (r *FileRepository) Load() (Config, error) {
 	return config, nil
 }
 
-var accountNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+var (
+	accountNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+	amountPattern      = regexp.MustCompile(`^(?:0|[1-9][0-9]{0,15})(?:\.[0-9]{1,2})?$`)
+)
+
+var contactProfileTypes = []string{"GTLD", "EU", "TJ", "RU.PP", "RU.ORG", "NEWTCI.ORG", "NEWTCI.PP"}
 
 func (r *FileRepository) Add(name string, account Account) (Account, error) {
 	if !accountNamePattern.MatchString(name) {
@@ -314,6 +332,7 @@ func validateAccount(account Account) error {
 		"CloudVPS reference":       account.Credentials.CloudVPSRef,
 		"REG.API reference":        account.Credentials.REGAPIRef,
 		"S3 reference":             account.Credentials.S3Ref,
+		"domain contact profile":   account.Domain.ContactProfileName,
 	} {
 		if err := validateOpaque(value); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
@@ -321,6 +340,21 @@ func validateAccount(account Account) error {
 	}
 	if err := validateCredentialProcess(account.CredentialProcess); err != nil {
 		return err
+	}
+	return validateDomain(account.Domain)
+}
+
+func validateDomain(settings Domain) error {
+	if settings.ContactProfileType != "" && !slices.Contains(contactProfileTypes, settings.ContactProfileType) {
+		return errors.New("domain contact_profile_type is not a REG.API profile type")
+	}
+	if (settings.ContactProfileType == "") != (settings.ContactProfileName == "") {
+		return errors.New("domain contact_profile_type and contact_profile_name must be set together")
+	}
+	for name, value := range map[string]string{"max_price": settings.MaxPrice, "max_renewal": settings.MaxRenewal} {
+		if value != "" && !amountPattern.MatchString(value) {
+			return fmt.Errorf("domain %s must be a rouble amount such as 500 or 499.90", name)
+		}
 	}
 	return nil
 }

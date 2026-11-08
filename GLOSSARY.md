@@ -91,6 +91,27 @@ journey. It is not a shareable payment link. Private locators such as
 `bill_sid` stay inside the browser adapter and never enter CLI output or
 configuration.
 
+## Domains
+
+### Availability verdict
+
+`taken`, `likely_free`, `free`, or `unknown` for one name. A registry miss is
+only `likely_free`; `free` additionally needs a REG.API `domain/check`
+confirmation. Any registry record, including pending deletion, is `taken`.
+Every failure is `unknown`, which is never treated as free.
+
+### Spending caps
+
+The first-year and renewal rouble limits within which `domain buy` proceeds
+without a prompt. Above a cap the purchase needs `--force`; an unknown renewal
+price is never bought.
+
+### user_servid
+
+A 32-hex service identifier the CLI generates before sending `domain/create`.
+It is the reconciliation handle for an ambiguous order; reusing it on a retry
+makes REG.API reject a duplicate instead of charging twice.
+
 ## Infrastructure
 
 ### CloudVPS action

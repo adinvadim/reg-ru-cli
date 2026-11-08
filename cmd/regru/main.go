@@ -10,6 +10,7 @@ import (
 	"github.com/adinvadim/reg-ru-cli/internal/provider/billing"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/capability"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/cloudvps"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/domains"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/authcli"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
@@ -57,6 +58,9 @@ func productionOptions() cli.Options {
 	options.Executor = support.NewExecutorWithOptions(support.ExecutorOptions{
 		Profiles: options.Profiles,
 		Portal:   support.NewPortal(broker),
+	}, options.Executor)
+	options.Executor = domains.NewExecutor(domains.ExecutorOptions{
+		Profiles: options.Profiles,
 	}, options.Executor)
 	options.Executor = authcli.New(options.Profiles, broker, options.Executor)
 	options.Executor = capability.NewExecutor(options.Profiles, options.Executor)

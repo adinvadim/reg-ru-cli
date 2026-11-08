@@ -90,6 +90,7 @@ func newRootCommand(app *appRuntime) *cobra.Command {
 		newVPSCommand(app),
 		newS3Command(app),
 		newBillingCommand(app),
+		newDomainCommand(app),
 		newSupportCommand(app),
 		newCompletionCommand(app),
 	)

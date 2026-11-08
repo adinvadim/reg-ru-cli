@@ -2,7 +2,7 @@
 
 `regru` is a human-friendly and agent-safe CLI for the REG.RU services used by
 this project: CloudVPS, REG.RU S3, account and browser authentication, billing,
-and an experimental support boundary. It is distributed as one Go binary and
+domains, and an experimental support boundary. It is distributed as one Go binary and
 keeps stable `--json` and `--plain` modes for scripts and agents.
 
 The CLI is intentionally conservative. Mutations support `--dry-run` and
@@ -18,6 +18,7 @@ typed, probed, and fail closed instead of guessing through contract drift.
 | CloudVPS | Documented v1/v2 APIs | Inventory, lifecycle, IP, key, snapshot, backup, plan, and image commands are implemented |
 | S3 | REG.Cloud control plane plus signed S3 protocol | Bucket and configuration lifecycle is implemented; object transfer is out of scope |
 | Billing | REG.API 2, CloudVPS, and a gated portal adapter | Documented reads/mutations are implemented; checkout is a visible-browser handoff, not a payment URL |
+| Domains | TCI WHOIS, Verisign RDAP, and REG.API 2 | Search and check need no account; quote, policy-capped buy with NS at order time, list, and NS changes use REG.API |
 | Support | Experimental private adapter | List, detail, create, reply, and close are enabled; standalone attachment and reopen remain fail-closed |
 
 Run `regru capability list` for locally configured capability state and
@@ -125,6 +126,7 @@ regru --account work auth status
 regru --account work vps list
 regru --account work --dry-run vps create --size PLAN --image IMAGE --region REGION
 regru --account work billing invoice list
+regru domain search kuban "kvartal|kvartaly"
 regru --account work --dry-run s3 bucket create UNIQUE_NAME --access private
 ```
 
@@ -155,6 +157,7 @@ The authoritative guides are:
 - [CloudVPS commands](docs/cloudvps.md)
 - [S3 commands](docs/s3.md)
 - [Billing and invoice commands](docs/billing.md)
+- [Domain commands](docs/domains.md)
 - [Experimental support adapter](docs/support.md)
 - [Domain terminology and established constraints](GLOSSARY.md)
 

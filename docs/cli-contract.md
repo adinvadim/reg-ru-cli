@@ -37,6 +37,8 @@ regru s3 credentials list|create|revoke
 regru billing balance|history
 regru billing invoice list|show|status|create|delete|payment-link
 regru billing invoice payment-method list|set
+regru domain search|check|quote|buy|list
+regru domain ns set
 regru support ticket list|get|create|reply|attach|close|reopen
 regru completion bash|zsh|fish|powershell
 ```
@@ -72,6 +74,8 @@ REG.RU S3 commands use separate private-control-plane and signed-protocol
 adapters; see the [S3 command guide](s3.md).
 Billing commands preserve the boundary between REG.API invoices and CloudVPS
 finance; see the [billing command guide](billing.md).
+Domain commands check registry availability without an account and buy only
+within the account spending caps; see the [domain command guide](domains.md).
 Support commands expose a typed experimental boundary but currently fail closed
 with operation-specific reasons; see the [support command guide](support.md).
 
@@ -259,11 +263,15 @@ Fresh browser login requires a TTY on stdin and fails before acquiring a
 browser or adapter when `--no-input` is set or stdin is not a TTY. Normal
 noninteractive commands never launch a browser implicitly.
 
-Mutations require a TTY confirmation or `--force`. `--dry-run` occurs before
+Mutations require a TTY confirmation or `--force`. The one exception is
+`domain buy`, which replaces the prompt with a spending policy evaluated
+against the live quote: within the account caps it proceeds without a prompt,
+above them it requires `--force`. `--dry-run` occurs before
 confirmation and before the injected executor, so it cannot make a provider,
 portal, S3, browser, BFF, or CDP call. Dry-run output reports only the account
 alias, operation name, and argument count; it does not echo opaque identifiers
-or paths.
+or paths. Domain mutations add a locally validated `plan` (normalized name,
+nameservers, and caps given as flags).
 
 The process root is canceled on Ctrl-C. The first interrupt propagates through
 the command context; signal interception is then removed so a second Ctrl-C
