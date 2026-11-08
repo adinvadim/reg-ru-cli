@@ -277,7 +277,7 @@ func TestBuyReconciliationNeverRetries(t *testing.T) {
 					t.Fatalf("error = %v", err)
 				}
 				data := result.Data.(map[string]any)
-				if data["reconciled"] != true || data["serviceId"] != "777" || data["userServid"] != testUserServID {
+				if data["reconciled"] != true || data["serviceId"] != "777" || data["userServid"] != testUserServID || data["nameserversConfirmed"] != true {
 					t.Fatalf("data = %#v", data)
 				}
 				return
@@ -306,7 +306,7 @@ func TestBuyWithSuppliedUserServID(t *testing.T) {
 			t.Fatal(err)
 		}
 		data := result.Data.(map[string]any)
-		if data["reconciled"] != true || data["serviceId"] != "777" || fake.calls != 0 || len(script.calls) != 1 {
+		if data["reconciled"] != true || data["serviceId"] != "777" || data["nameserversConfirmed"] != true || fake.calls != 0 || script.count("domain/create") != 0 {
 			t.Fatalf("data = %#v registry = %d calls = %v", data, fake.calls, script.calls)
 		}
 	})

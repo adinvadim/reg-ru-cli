@@ -137,7 +137,9 @@ func (e *Executor) existingOrder(ctx context.Context, operation cli.Operation, p
 	case matchUnknown:
 		return cli.Result{}, false, unverifiedService(operation, plan, evidence)
 	}
-	return renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State}), true, nil
+	result := renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State})
+	confirmNameservers(ctx, client, plan.name, plan.nameservers, &result)
+	return result, true, nil
 }
 
 type match int
@@ -258,7 +260,9 @@ func (e *Executor) reconcile(
 		case matchUnknown:
 			return cli.Result{}, unverifiedService(operation, plan, evidence)
 		}
-		return renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State}), nil
+		result := renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State})
+		confirmNameservers(reconcileCtx, client, plan.name, plan.nameservers, &result)
+		return result, nil
 	default:
 		evidence.ServiceLookup = "not_found"
 	}
