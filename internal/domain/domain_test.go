@@ -23,6 +23,10 @@ func TestParseNormalisesIDNAndRoundTrips(t *testing.T) {
 		}
 	}
 
+	if short, err := Parse("x.com"); err != nil || short.ASCII != "x.com" {
+		t.Fatalf("single-character .com label = %#v, %v; grandfathered names must parse", short, err)
+	}
+
 	latin, err := Parse("KUBAN-Kvartal.RU")
 	if err != nil || latin.ASCII != "kuban-kvartal.ru" || latin.Unicode != latin.ASCII || latin.Display() != "kuban-kvartal.ru" {
 		t.Fatalf("Parse(latin) = %#v, %v", latin, err)

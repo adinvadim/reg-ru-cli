@@ -324,6 +324,36 @@ func TestBuyWithSuppliedUserServID(t *testing.T) {
 			t.Fatalf("err = %v calls = %v", err, script.calls)
 		}
 	})
+	nameless := ok(`{"result":"success","answer":{"services":[{"service_id":"777","servtype":"domain","state":"N"}]}}`)
+	for _, testCase := range []struct {
+		name   string
+		nop    []scripted
+		code   string
+		reason string
+	}{
+		{"nameless service resolved by domain/nop", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"777"}}`), "", ""},
+		{"nameless service with another id conflicts", ok(`{"result":"success","answer":{"dname":"domkray.ru","service_id":"888"}}`), cli.CodeSpendingPolicyRefused, "user_servid_conflict"},
+		{"nameless service that cannot be resolved stays unknown", []scripted{{500, "oops"}}, cli.CodeOutcomeUnknown, ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			script := newREGAPI(t, map[string][]scripted{"service/get_info": nameless, "domain/nop": testCase.nop})
+			operation, _ := buyOperation(false, map[string][]string{"user-servid": {reused}})
+			result, err := testExecutor(t, script, &fakeRegistry{}, ownerSettings).Execute(context.Background(), operation)
+			if script.count("domain/create") != 0 {
+				t.Fatalf("calls = %v", script.calls)
+			}
+			if testCase.code == "" {
+				if err != nil || result.Data.(map[string]any)["reconciled"] != true {
+					t.Fatalf("err = %v", err)
+				}
+				return
+			}
+			cliErr := cliCode(t, err)
+			if cliErr.Code != testCase.code || testCase.reason != "" && cliErr.Details["reason"] != testCase.reason {
+				t.Fatalf("error = %#v", cliErr)
+			}
+		})
+	}
 	t.Run("duplicate id for another name after dispatch is not a success", func(t *testing.T) {
 		script := newREGAPI(t, map[string][]scripted{
 			"domain/get_prices": ok(pricesBody), "user/get_balance": ok(balanceBody),

@@ -280,6 +280,30 @@ func (c *Client) ServiceByUserServID(ctx context.Context, userServID string) (Se
 	return info, true, nil
 }
 
+// DomainServiceID returns the account's service ID for a domain through
+// domain/nop. found is false only for a recognised not-found answer.
+func (c *Client) DomainServiceID(ctx context.Context, name string) (string, bool, error) {
+	raw, err := c.call(ctx, "domain/nop", map[string]any{"dname": name}, false)
+	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && (serviceNotFound(apiErr.Code) || apiErr.Code == "DOMAIN_NOT_FOUND") {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	var answer struct {
+		ServiceID json.RawMessage `json:"service_id"`
+	}
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		return "", false, &ContractError{Message: "decode REG.API domain/nop response"}
+	}
+	serviceID, _ := flexString(answer.ServiceID)
+	if !validIdentifier(serviceID) {
+		return "", false, &ContractError{Message: "REG.API domain/nop returned no service ID"}
+	}
+	return serviceID, true, nil
+}
+
 // ListDomains returns the current domain services of the account.
 func (c *Client) ListDomains(ctx context.Context) ([]ServiceInfo, error) {
 	raw, err := c.call(ctx, "service/get_list", map[string]any{"servtype": "domain"}, false)

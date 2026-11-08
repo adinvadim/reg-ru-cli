@@ -28,8 +28,8 @@ const (
 var SupportedZones = []Zone{ZoneRU, ZoneRF, ZoneSU, ZoneCOM, ZoneNET}
 
 const (
-	minLabelRunes = 2
-	maxLabelASCII = 63
+	minRussianLabelRunes = 2
+	maxLabelASCII        = 63
 )
 
 // Name is one validated second-level domain name.
@@ -138,8 +138,8 @@ func Parse(input string) (Name, error) {
 	if len(label) > maxLabelASCII {
 		return Name{}, invalid("%q is longer than 63 ASCII characters", input)
 	}
-	if utf8.RuneCountInString(labels[0]) < minLabelRunes {
-		return Name{}, invalid("%q is shorter than %d characters", input, minLabelRunes)
+	if minimum := minLabelLength(zone); utf8.RuneCountInString(labels[0]) < minimum {
+		return Name{}, invalid("%q is shorter than %d characters", input, minimum)
 	}
 	fromPunycode := false
 	for _, part := range strings.Split(strings.ToLower(raw), ".") {
@@ -148,6 +148,15 @@ func Parse(input string) (Name, error) {
 		}
 	}
 	return Name{Unicode: unicodeName, ASCII: ascii, Zone: zone, FromPunycode: fromPunycode}, nil
+}
+
+func minLabelLength(zone Zone) int {
+	switch zone {
+	case ZoneRU, ZoneRF, ZoneSU:
+		return minRussianLabelRunes
+	default:
+		return 1
+	}
 }
 
 func checkZoneScript(label string, zone Zone) error {

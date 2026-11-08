@@ -30,7 +30,8 @@ hostnames.
 
 ## Names and IDN
 
-A name is exactly one label plus a supported zone: `ru`, `рф` (also `rf` or
+A name is exactly one label (at least two characters in `.ru`, `.рф`, `.su`;
+one is allowed in `.com`/`.net`) plus a supported zone: `ru`, `рф` (also `rf` or
 `xn--p1ai`), `su`, `com`, `net`. URLs, subdomains, whitespace, and
 `/@:?#%\` are usage errors (exit 2). Input is folded with the UTS #46 lookup
 mapping, converted with the strict IDNA2008 registration profile, and must
@@ -146,14 +147,19 @@ decimals.
 After an ambiguous dispatch the CLI never resends `domain/create`. It looks
 the order up with `service/get_info` by `user_servid` (bounded to 20 s, even
 after Ctrl-C). A found service for the same name is reported as committed with
-`reconciled: true`; a service for another name is `user_servid_conflict`. Anything else returns `outcome_unknown` (exit 10) with
+`reconciled: true`; a service for another name is `user_servid_conflict`.
+When `service/get_info` omits the name, `domain/nop` resolves the requested
+name to its service ID for the comparison; if that fails the result stays
+`outcome_unknown`. Anything else returns `outcome_unknown` (exit 10) with
 `details.evidence`: `userServid`, `serviceLookup` (`not_found` or `failed`),
 `balanceBefore`, `balanceAfter`, `balanceChanged`, and `registryState`. Check
 `regru domain list` before retrying, and retry only with
 `--user-servid <same value>`: the ID is looked up before anything else, so a
 landed first order is reported instead of bought twice.
 
-Registration is an application: the service starts in state `N` and becomes
+`buy` targets ordinary REG.RU client accounts: it does not send
+`enduser_ip`, which REG.API requires only from partners, so partner purchases
+are not supported. Registration is an application: the service starts in state `N` and becomes
 `A` later. NIC.RU zone creation and records stay outside this CLI (`nic-dns`).
 
 ## List and nameservers

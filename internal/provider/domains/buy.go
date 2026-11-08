@@ -128,16 +128,53 @@ func (e *Executor) existingOrder(ctx context.Context, operation cli.Operation, p
 	if !found {
 		return cli.Result{}, false, nil
 	}
-	if !sameName(info.Name, plan.name) {
-		return cli.Result{}, false, userServIDConflict(plan, info)
-	}
 	evidence := Evidence{Trigger: "user_servid_supplied", UserServID: plan.userServID, ServiceLookup: "found"}
+	switch serviceMatches(ctx, client, info, plan.name) {
+	case matchNo:
+		return cli.Result{}, false, userServIDConflict(plan, info)
+	case matchUnknown:
+		return cli.Result{}, false, unverifiedService(operation, plan, evidence)
+	}
 	return renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State}), true, nil
 }
 
-func sameName(serviceName string, name domain.Name) bool {
-	parsed, err := domain.Parse(serviceName)
-	return err == nil && parsed.ASCII == name.ASCII
+type match int
+
+const (
+	matchUnknown match = iota
+	matchYes
+	matchNo
+)
+
+// serviceMatches checks that a service found by user_servid belongs to the
+// requested name. service/get_info may omit dname; then domain/nop resolves
+// the name to the account's service ID. Anything unresolved stays unknown.
+func serviceMatches(ctx context.Context, client *regapi.Client, info regapi.ServiceInfo, name domain.Name) match {
+	if info.Name != "" {
+		parsed, err := domain.Parse(info.Name)
+		if err == nil && parsed.ASCII == name.ASCII {
+			return matchYes
+		}
+		return matchNo
+	}
+	serviceID, found, err := client.DomainServiceID(ctx, name.ASCII)
+	switch {
+	case err != nil:
+		return matchUnknown
+	case !found || serviceID != info.ServiceID:
+		return matchNo
+	default:
+		return matchYes
+	}
+}
+
+func unverifiedService(operation cli.Operation, plan purchasePlan, evidence Evidence) error {
+	evidence.ServiceLookup = "found_unverified"
+	return cli.OutcomeUnknownWithDetails(
+		operation.Capability,
+		"a service exists for this user_servid but could not be matched to the domain; nothing new was ordered; check regru domain list",
+		map[string]any{"domain": plan.name.Display(), "evidence": evidence},
+	)
 }
 
 func userServIDConflict(plan purchasePlan, info regapi.ServiceInfo) error {
@@ -208,8 +245,11 @@ func (e *Executor) reconcile(
 		evidence.ServiceLookup = "failed"
 	case found:
 		evidence.ServiceLookup = "found"
-		if !sameName(info.Name, plan.name) {
+		switch serviceMatches(reconcileCtx, client, info, plan.name) {
+		case matchNo:
 			return cli.Result{}, userServIDConflict(plan, info)
+		case matchUnknown:
+			return cli.Result{}, unverifiedService(operation, plan, evidence)
 		}
 		return renderPurchase(plan, regapi.DomainCreateResult{Name: plan.name.ASCII, ServiceID: info.ServiceID}, &reconciled{evidence: evidence, state: info.State}), nil
 	default:
