@@ -16,7 +16,7 @@ import (
 const (
 	reregLadder    = `[0,450,1950,5950,11950,17950,25500,49950,69900,99900,190900,350900,450000,675000,900000,1600000,2300000,3200000,4500000,7500000,10000000]`
 	noBidsBody     = `{"result":"success","answer":{"domains":[],"rereg_bids":{"ru":` + reregLadder + `,"su":` + reregLadder + `,"рф":` + reregLadder + `}}}`
-	reregBalance   = `{"result":"success","answer":{"currency":"RUR","prepay":"824.00"}}`
+	reregBalance   = `{"result":"success","answer":{"currency":"RUR","prepay":"900.00"}}`
 	reregBidOK     = `{"result":"success","answer":{"bill_id":"4321","payment":"450","pay_type":"prepay","pay_notes":"Amount successfully charged","domains":[{"dname":"moonbot.ru","result":"success","service_id":"999"}]}}`
 	blitzBody      = `{"ru":{"cur_bid":"3200000","time_bid":1794995100,"max_bid":"10000000","min_bid":"450","time_left":63}}`
 	reregListPage  = `<html><script>window.pDomainRereg = {"domainsArray":[]};</script></html>`
@@ -198,7 +198,7 @@ func TestReregQuoteMatchesSharedContract(t *testing.T) {
 	if quote.NextBidKopecks == nil || *quote.NextBidKopecks != 195000 || quote.CurrentTopKopecks == nil || *quote.CurrentTopKopecks != 45000 || !quote.CompetingBidVisible {
 		t.Fatalf("bids = next %v top %v competing %v", quote.NextBidKopecks, quote.CurrentTopKopecks, quote.CompetingBidVisible)
 	}
-	if string(keys["myOrder"]) != "null" || quote.Balance == nil || quote.Balance.AvailableKopecks != 82400 || quote.Balance.Sufficient == nil || *quote.Balance.Sufficient {
+	if string(keys["myOrder"]) != "null" || quote.Balance == nil || quote.Balance.AvailableKopecks != 90000 || quote.Balance.Sufficient == nil || *quote.Balance.Sufficient {
 		t.Fatalf("myOrder = %s balance = %#v", keys["myOrder"], quote.Balance)
 	}
 	if len(quote.Steps) != 20 || quote.Steps[0].ID != "450" || quote.Steps[0].Available || !quote.Steps[1].Available ||
@@ -528,7 +528,7 @@ func TestReregBidAmbiguousDispatchIsReconciledNeverResent(t *testing.T) {
 			cliErr := cliCode(t, err)
 			evidence, _ := cliErr.Details["evidence"].(ReregEvidence)
 			if cliErr.Code != cli.CodeOutcomeUnknown || cliErr.ExitCode != cli.ExitOutcomeUnknown || evidence.BidLookup != testCase.lookup ||
-				cliErr.Details["journalId"] == "" || evidence.BalanceChanged == nil || !*evidence.BalanceChanged || evidence.BalanceBefore != 82400 {
+				cliErr.Details["journalId"] == "" || evidence.BalanceChanged == nil || !*evidence.BalanceChanged || evidence.BalanceBefore != 90000 {
 				t.Fatalf("error = %#v evidence = %#v", cliErr, evidence)
 			}
 		})
