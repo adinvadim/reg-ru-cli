@@ -638,3 +638,25 @@ func TestReregBidRechecksTheClockBeforeDispatch(t *testing.T) {
 		})
 	}
 }
+
+func TestReregQuoteAppliesTheReleaseDayBlitzToFlaggedLots(t *testing.T) {
+	public := &fakePublic{pages: map[string]rereg.Response{
+		rereg.BlitzPath: {Status: 200, Body: blitzBody}, // zone blitz 3,200,000 RUB
+		rereg.DetailsPath("moonbot.ru"): {Status: 200, Body: strings.Replace(
+			detailsFor("moonbot.ru", "450.00"), `"isDomainDeletionBlitz":""`, `"isDomainDeletionBlitz":"1"`, 1)},
+	}}
+	fixture := newReregFixture(t, nil, public, profile.Domain{}, reregNoon) // no catalogue: release date unknown
+	result, err := fixture.executor.Execute(context.Background(), quoteOperation(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote := result.Data.(ReregQuote)
+	if quote.ReleaseDate != nil || quote.BlitzKopecks == nil || *quote.BlitzKopecks != 320000000 {
+		t.Fatalf("release = %v blitz = %v", quote.ReleaseDate, quote.BlitzKopecks)
+	}
+	for _, step := range quote.Steps {
+		if want := step.AmountKopecks <= 320000000; step.Available != want {
+			t.Errorf("step %s available = %v, want %v", step.ID, step.Available, want)
+		}
+	}
+}

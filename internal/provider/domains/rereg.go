@@ -480,7 +480,10 @@ func buildQuote(view reregView, now time.Time) (ReregQuote, []cli.Warning) {
 	} else if own != nil {
 		ceiling = kopecksPointer(own.BlitzPrice)
 	}
-	if zoneBlitz, ok := view.blitz[string(name.Zone)]; ok && releaseToday && ceiling != nil && zoneBlitz.CurrentKopecks < *ceiling {
+	// The scaledown applies on the release day; REG.RU also flags such lots on
+	// the public page, which covers names without a known release date.
+	scaledown := releaseToday || view.lot != nil && view.lot.DeletionBlitz
+	if zoneBlitz, ok := view.blitz[string(name.Zone)]; ok && scaledown && ceiling != nil && zoneBlitz.CurrentKopecks < *ceiling {
 		lowered := zoneBlitz.CurrentKopecks
 		ceiling = &lowered
 	}

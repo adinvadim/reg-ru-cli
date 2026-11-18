@@ -235,7 +235,7 @@ kopecks, `null` when unknown, never `0` for unknown):
 | `service`, `domain` | `regru`, the Unicode name (`name` adds both forms) |
 | `releaseDate` | own bid `delete_date`, else the catalogue snapshot, else `null` |
 | `state` | `ordered_by_me` (own bid), `releasing` (lot page), `not_listed` (REG.RU serves the general list instead), `unknown` |
-| `steps[]` | the ladder; `available` between the next bid and the blitz (the zone blitz on the release day) |
+| `steps[]` | the ladder; `available` between the next bid and the blitz (the lower zone blitz on the release day or when the lot page flags the release-day scaledown) |
 | `nextBidKopecks` | own bid `next_price`, else the lot page `minPrice` |
 | `currentTopKopecks` | own bid `max_bid`, else inferred as the ladder step below `minPrice` (with a note); `null` without bids |
 | `competingBidVisible` | a top bid that is not ours |
