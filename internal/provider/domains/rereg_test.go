@@ -660,3 +660,20 @@ func TestReregQuoteAppliesTheReleaseDayBlitzToFlaggedLots(t *testing.T) {
 		}
 	}
 }
+
+func TestReregBidRefusesPricesAboveTheReleaseDayBlitz(t *testing.T) {
+	// 16:35 MSK on the release day: REG.RU's zone blitz has stepped down to 1,950 RUB.
+	now := time.Date(2026, 11, 19, 16, 35, 0, 0, time.FixedZone("MSK", 3*3600))
+	public := publicLot("moonbot.ru", "450.00")
+	public.pages[rereg.BlitzPath] = rereg.Response{Status: 200, Body: `{"ru":{"cur_bid":"1950","time_bid":1795010700,"max_bid":"10000000","min_bid":"450"}}`}
+	script := newREGAPI(t, map[string][]scripted{"domain/get_user_rereg_bids": ok(noBidsBody)})
+	fixture := newReregFixture(t, script, public, ownerSettings, now)
+	fixture.saveCatalog(t, "moonbot.ru;нет;10000000.00;;2026-11-19;REGRU")
+	_, err := fixture.executor.Execute(context.Background(), bidOperation("5950", map[string][]string{"max-price": {"6000"}, "over-limit": {"true"}}))
+	if cliErr := cliCode(t, err); cliErr.Code != cli.CodeInvalidUsage || !strings.Contains(cliErr.Message, "1950") {
+		t.Fatalf("error = %#v", cliErr)
+	}
+	if script.count("domain/set_rereg_bids") != 0 || script.count("user/get_balance") != 0 {
+		t.Fatalf("calls = %v", script.calls)
+	}
+}

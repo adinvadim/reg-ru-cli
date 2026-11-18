@@ -282,11 +282,13 @@ browser, or network activity). The order of work is fixed:
    `existing_bid`, a closed lot is `lot_closed`; `--price` must be a step of
    the zone ladder (exit 2 lists the nearby steps).
 6. The public lot page: a name REG.RU does not list is `not_listed`;
-   `--price` below `minPrice` or above the blitz is exit 2. If the page cannot
-   be read the bid continues with the `public_lot_unverified` warning.
+   `--price` below `minPrice` is exit 2. If the page cannot be read the bid
+   continues with the `public_lot_unverified` warning.
 7. The release date (own bid or catalogue snapshot): at or after 16:45 MSK on
    that day the bid is `deadline_passed` unless `--allow-release-window`. An
-   unknown date adds `release_date_unknown`.
+   unknown date adds `release_date_unknown`. `--price` above the current blitz
+   (the per-name blitz, lowered by the zone blitz on the release day or for a
+   flagged lot, as in `quote`) is exit 2.
 8. `user/get_balance`: a short balance is `insufficient_funds` (exit 4) with
    nothing sent.
 9. Re-evaluate the guard window, the deadline, and the daily cap on a fresh

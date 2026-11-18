@@ -473,20 +473,7 @@ func buildQuote(view reregView, now time.Time) (ReregQuote, []cli.Warning) {
 		}
 	}
 
-	// Ceiling: the per-name blitz, lowered by the zone blitz on the release day.
-	var ceiling *int64
-	if view.lot != nil && view.lot.State == rereg.LotListed {
-		ceiling = &view.lot.MaxKopecks
-	} else if own != nil {
-		ceiling = kopecksPointer(own.BlitzPrice)
-	}
-	// The scaledown applies on the release day; REG.RU also flags such lots on
-	// the public page, which covers names without a known release date.
-	scaledown := releaseToday || view.lot != nil && view.lot.DeletionBlitz
-	if zoneBlitz, ok := view.blitz[string(name.Zone)]; ok && scaledown && ceiling != nil && zoneBlitz.CurrentKopecks < *ceiling {
-		lowered := zoneBlitz.CurrentKopecks
-		ceiling = &lowered
-	}
+	ceiling := effectiveCeiling(name, view.lot, own, view.blitz, releaseToday)
 	quote.BlitzKopecks = ceiling
 
 	// State, next bid, and current top.
@@ -553,6 +540,26 @@ func buildQuote(view reregView, now time.Time) (ReregQuote, []cli.Warning) {
 		quote.Notes = append(quote.Notes, "a paid bid cannot be cancelled; an outbid bid is refunded to the balance; REG.RU does not guarantee registration")
 	}
 	return quote, warnings
+}
+
+// effectiveCeiling is the highest bid REG.RU accepts now: the per-name blitz,
+// lowered by the zone blitz while the release-day scaledown applies. The
+// scaledown applies on the release day; REG.RU also flags such lots on the
+// public page, which covers names without a known release date.
+func effectiveCeiling(name domain.Name, lot *rereg.Lot, own *regapi.ReregBid, blitz map[string]rereg.Blitz, releaseToday bool) *int64 {
+	var ceiling *int64
+	if lot != nil && lot.State == rereg.LotListed {
+		value := lot.MaxKopecks
+		ceiling = &value
+	} else if own != nil {
+		ceiling = kopecksPointer(own.BlitzPrice)
+	}
+	scaledown := releaseToday || lot != nil && lot.DeletionBlitz
+	if zoneBlitz, ok := blitz[string(name.Zone)]; ok && scaledown && ceiling != nil && zoneBlitz.CurrentKopecks < *ceiling {
+		lowered := zoneBlitz.CurrentKopecks
+		ceiling = &lowered
+	}
+	return ceiling
 }
 
 // stepBelow returns the highest positive ladder step strictly below next,
@@ -840,7 +847,7 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 		return cli.Result{}, cli.UsageError(fmt.Sprintf("--price %s RUB is not a REG.RU ladder step; nearby steps: %s", domain.Roubles(price), nearbySteps(ladder, price)))
 	}
 	warnings := []cli.Warning{}
-	lot, _, lotErr := e.readPublicLot(ctx, name)
+	lot, blitz, lotErr := e.readPublicLot(ctx, name)
 	if err := ctx.Err(); err != nil {
 		return cli.Result{}, err
 	}
@@ -851,8 +858,6 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 		return cli.Result{}, cli.PolicyRefused("not_listed", "REG.RU does not list this name in the backorder; nothing was sent", map[string]any{"domain": name.Display()})
 	case lot.State == rereg.LotListed && price < lot.MinKopecks:
 		return cli.Result{}, cli.UsageError(fmt.Sprintf("--price %s RUB is below the minimum next bid %s RUB", domain.Roubles(price), domain.Roubles(lot.MinKopecks)))
-	case lot.State == rereg.LotListed && price > lot.MaxKopecks:
-		return cli.Result{}, cli.UsageError(fmt.Sprintf("--price %s RUB is above the blitz price %s RUB", domain.Roubles(price), domain.Roubles(lot.MaxKopecks)))
 	}
 	if own != nil && own.NextPrice != "" {
 		if next, ok := domain.Kopecks(own.NextPrice); ok && price < next {
@@ -871,6 +876,14 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 		warnings = append(warnings, cli.Warning{Code: "release_date_unknown", Message: "the release date is unknown (no own bid, no catalogue snapshot entry), so the 16:45 MSK deadline was not checked"})
 	} else if err := deadlineRefusal(name, plan.releaseDate, now, allowWindow); err != nil {
 		return cli.Result{}, err
+	}
+	// The same ceiling as quote: a price above the current (possibly scaled
+	// down) blitz is refused locally rather than left to the paid API.
+	releaseToday := plan.releaseDate != "" && plan.releaseDate == domain.MSKDate(now)
+	if lotErr == nil || own != nil {
+		if ceiling := effectiveCeiling(name, lot, own, blitz, releaseToday); ceiling != nil && price > *ceiling {
+			return cli.Result{}, cli.UsageError(fmt.Sprintf("--price %s RUB is above the current blitz price %s RUB", domain.Roubles(price), domain.Roubles(*ceiling)))
+		}
 	}
 
 	balance, err := client.GetBalance(ctx, "RUR")
