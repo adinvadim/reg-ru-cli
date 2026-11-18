@@ -604,3 +604,37 @@ func TestReregCatalogFetchRejectsAnHTMLAnswer(t *testing.T) {
 		t.Fatal("an HTML answer was stored as the catalogue")
 	}
 }
+
+func TestReregBidRechecksTheClockBeforeDispatch(t *testing.T) {
+	msk := time.FixedZone("MSK", 3*3600)
+	for _, check := range []struct {
+		name   string
+		before time.Time
+		after  time.Time
+		reason string
+	}{
+		{"prechecks end inside the guard window", time.Date(2026, 11, 18, 16, 54, 30, 0, msk), time.Date(2026, 11, 18, 16, 55, 10, 0, msk), "guard_window"},
+		{"prechecks end after the release-day deadline", time.Date(2026, 11, 19, 16, 44, 50, 0, msk), time.Date(2026, 11, 19, 16, 45, 5, 0, msk), "deadline_passed"},
+	} {
+		t.Run(check.name, func(t *testing.T) {
+			script := newREGAPI(t, map[string][]scripted{"domain/get_user_rereg_bids": ok(noBidsBody), "user/get_balance": ok(reregBalance)})
+			fixture := newReregFixture(t, script, publicLot("moonbot.ru", "450.00"), ownerSettings, check.before)
+			fixture.saveCatalog(t, "moonbot.ru;нет;10000000.00;;2026-11-19;REGRU")
+			calls := 0
+			fixture.executor.options.Now = func() time.Time {
+				calls++
+				if calls == 1 {
+					return check.before
+				}
+				return check.after
+			}
+			_, err := fixture.executor.Execute(context.Background(), bidOperation("450", nil))
+			if cliErr := cliCode(t, err); cliErr.Code != cli.CodePolicyRefused || cliErr.Details["reason"] != check.reason {
+				t.Fatalf("error = %#v", cliErr)
+			}
+			if script.count("domain/set_rereg_bids") != 0 || spentToday(t, fixture.journal) != 0 {
+				t.Fatalf("calls = %v; nothing may be sent once the clock enters a refused period", script.calls)
+			}
+		})
+	}
+}

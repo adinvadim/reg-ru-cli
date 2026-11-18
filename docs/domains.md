@@ -289,7 +289,9 @@ browser, or network activity). The order of work is fixed:
    unknown date adds `release_date_unknown`.
 8. `user/get_balance`: a short balance is `insufficient_funds` (exit 4) with
    nothing sent.
-9. Journal an intent, send once, journal the outcome.
+9. Re-evaluate the guard window, the deadline, and the daily cap on a fresh
+   clock (the reads above can take tens of seconds), then journal an intent,
+   send once, and journal the outcome.
 
 `--contact profile` sends the account's `contact_profile_type` and
 `contact_profile_name` (as `domain/create` does; REG.API does not document

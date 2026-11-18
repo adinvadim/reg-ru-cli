@@ -758,10 +758,8 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 	overLimit := parameter(operation, "over-limit") == "true"
 	allowWindow := parameter(operation, "allow-release-window") == "true"
 	now := e.now()
-	if start, end, inside := domain.ReregGuardWindow(now); inside && !allowWindow {
-		return cli.Result{}, cli.PolicyRefused("guard_window", fmt.Sprintf(
-			"backorder bids are refused between %s and %s MSK; rerun later or pass --allow-release-window", start.Format("15:04"), end.Format("15:04"),
-		), map[string]any{"override": "--allow-release-window"})
+	if err := guardWindowRefusal(now, allowWindow); err != nil {
+		return cli.Result{}, err
 	}
 	account, err := e.account(operation)
 	if err != nil {
@@ -809,16 +807,8 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 		return cli.Result{}, cli.ConfigurationError("the backorder bid journal is unavailable in the user config directory")
 	}
 	defer lock.Release()
-	spend, err := journal.DailySpend(rereg.Today(now))
-	if err != nil {
-		return cli.Result{}, cli.ConfigurationError("the backorder bid journal could not be read; daily spending cannot be evaluated")
-	}
-	plan.caps.SpentToday = spend.AmountKopecks
-	if spend.AmountKopecks+price > plan.caps.MaxDailyKopecks && !overLimit {
-		return cli.Result{}, cli.PolicyRefused("spend_limit_exceeded", fmt.Sprintf(
-			"the bid would bring today's backorder spending to %s RUB, above the daily cap %s RUB (rereg_max_daily); pass --over-limit after approval",
-			domain.Roubles(spend.AmountKopecks+price), domain.Roubles(plan.caps.MaxDailyKopecks),
-		), map[string]any{"limit": "daily", "override": "--over-limit", "spentTodayKopecks": spend.AmountKopecks, "priceKopecks": price, "capKopecks": plan.caps.MaxDailyKopecks})
+	if err := dailyCapRefusal(journal, now, &plan.caps, price); err != nil {
+		return cli.Result{}, err
 	}
 
 	client, err := e.regapiClient(ctx, operation)
@@ -876,10 +866,8 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 	}
 	if plan.releaseDate == "" {
 		warnings = append(warnings, cli.Warning{Code: "release_date_unknown", Message: "the release date is unknown (no own bid, no catalogue snapshot entry), so the 16:45 MSK deadline was not checked"})
-	} else if deadline, ok := domain.ReregBidDeadline(plan.releaseDate); ok && !now.Before(deadline) && !allowWindow {
-		return cli.Result{}, cli.PolicyRefused("deadline_passed", fmt.Sprintf(
-			"the last payment for %s was due at %s; REG.RU may treat later orders as invalid", name.Display(), deadline.Format("2006-01-02 15:04 MSK"),
-		), map[string]any{"override": "--allow-release-window", "bidDeadline": deadline.Format(time.RFC3339)})
+	} else if err := deadlineRefusal(name, plan.releaseDate, now, allowWindow); err != nil {
+		return cli.Result{}, err
 	}
 
 	balance, err := client.GetBalance(ctx, "RUR")
@@ -895,6 +883,20 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 		return cli.Result{}, cli.InsufficientFunds(domain.Roubles(price), balance.Prepay, domain.Roubles(price-available), "RUR", false)
 	}
 	if err := ctx.Err(); err != nil {
+		return cli.Result{}, err
+	}
+
+	// The reads above can take tens of seconds (browser start, REG.API), so the
+	// time-based policies are evaluated again on a fresh clock right before the
+	// intent is journaled and the paid request is sent.
+	now = e.now()
+	if err := guardWindowRefusal(now, allowWindow); err != nil {
+		return cli.Result{}, err
+	}
+	if err := deadlineRefusal(name, plan.releaseDate, now, allowWindow); err != nil {
+		return cli.Result{}, err
+	}
+	if err := dailyCapRefusal(journal, now, &plan.caps, price); err != nil {
 		return cli.Result{}, err
 	}
 
@@ -918,6 +920,43 @@ func (e *Executor) reregBid(ctx context.Context, operation cli.Operation) (cli.R
 		return renderReregBid(plan, result, false, warnings), nil
 	}
 	return e.reregBidFailure(ctx, operation, client, plan, err, record, warnings)
+}
+
+func guardWindowRefusal(now time.Time, allowWindow bool) error {
+	start, end, inside := domain.ReregGuardWindow(now)
+	if !inside || allowWindow {
+		return nil
+	}
+	return cli.PolicyRefused("guard_window", fmt.Sprintf(
+		"backorder bids are refused between %s and %s MSK; rerun later or pass --allow-release-window", start.Format("15:04"), end.Format("15:04"),
+	), map[string]any{"override": "--allow-release-window"})
+}
+
+func deadlineRefusal(name domain.Name, releaseDate string, now time.Time, allowWindow bool) error {
+	deadline, ok := domain.ReregBidDeadline(releaseDate)
+	if !ok || now.Before(deadline) || allowWindow {
+		return nil
+	}
+	return cli.PolicyRefused("deadline_passed", fmt.Sprintf(
+		"the last payment for %s was due at %s; REG.RU may treat later orders as invalid", name.Display(), deadline.Format("2006-01-02 15:04 MSK"),
+	), map[string]any{"override": "--allow-release-window", "bidDeadline": deadline.Format(time.RFC3339)})
+}
+
+// dailyCapRefusal reads the journal for the Moscow day of now (the caller
+// holds the bid lock) and records the day's spending in caps.
+func dailyCapRefusal(journal rereg.Journal, now time.Time, caps *reregCaps, price int64) error {
+	spend, err := journal.DailySpend(rereg.Today(now))
+	if err != nil {
+		return cli.ConfigurationError("the backorder bid journal could not be read; daily spending cannot be evaluated")
+	}
+	caps.SpentToday = spend.AmountKopecks
+	if spend.AmountKopecks+price <= caps.MaxDailyKopecks || caps.OverLimit {
+		return nil
+	}
+	return cli.PolicyRefused("spend_limit_exceeded", fmt.Sprintf(
+		"the bid would bring today's backorder spending to %s RUB, above the daily cap %s RUB (rereg_max_daily); pass --over-limit after approval",
+		domain.Roubles(spend.AmountKopecks+price), domain.Roubles(caps.MaxDailyKopecks),
+	), map[string]any{"limit": "daily", "override": "--over-limit", "spentTodayKopecks": spend.AmountKopecks, "priceKopecks": price, "capKopecks": caps.MaxDailyKopecks})
 }
 
 func (e *Executor) reregContacts(ctx context.Context, operation cli.Operation) (map[string]string, error) {
