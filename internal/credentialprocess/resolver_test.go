@@ -64,6 +64,17 @@ func TestEnvelopeRejectsDuplicateUnknownAndPartialFields(t *testing.T) {
 	}
 }
 
+func TestEnvelopeAcceptsBackorderContacts(t *testing.T) {
+	t.Parallel()
+
+	contacts := `{\"person\":\"Ivan I Ivanov\",\"country\":\"RU\"}`
+	values, err := parseEnvelope(strings.NewReader(`{"schemaVersion":"regru.credential-process/v1","fields":{"rereg.contacts":"` + contacts + `"}}`))
+	defer wipe(values)
+	if err != nil || string(values["rereg.contacts"]) != `{"person":"Ivan I Ivanov","country":"RU"}` {
+		t.Fatalf("parseEnvelope() = %q, %v", values["rereg.contacts"], err)
+	}
+}
+
 func TestResolverBoundsCredentialProcessTime(t *testing.T) {
 	t.Parallel()
 

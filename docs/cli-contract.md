@@ -39,6 +39,8 @@ regru billing invoice list|show|status|create|delete|payment-link
 regru billing invoice payment-method list|set
 regru domain search|check|quote|buy|list
 regru domain ns set
+regru domain rereg catalog fetch|search
+regru domain rereg quote|bids|bid
 regru support ticket list|get|create|reply|attach|close|reopen
 regru completion bash|zsh|fish|powershell
 ```
@@ -75,7 +77,9 @@ adapters; see the [S3 command guide](s3.md).
 Billing commands preserve the boundary between REG.API invoices and CloudVPS
 finance; see the [billing command guide](billing.md).
 Domain commands check registry availability without an account and buy only
-within the account spending caps; see the [domain command guide](domains.md).
+within the account spending caps; backorder (`domain rereg`) bids add per-bid
+and daily caps and a 16:55–17:15 MSK guard window; see the
+[domain command guide](domains.md).
 Support commands expose a typed experimental boundary but currently fail closed
 with operation-specific reasons; see the [support command guide](support.md).
 
@@ -250,6 +254,7 @@ fields.
 | 6 | Network/provider failure |
 | 7 | Capability unavailable or not implemented |
 | 8 | Private provider contract drift |
+| 9 | A local safety policy refused a mutation before anything was sent (`policy_refused`) |
 | 10 | A mutation may have committed but cannot yet be verified |
 | 124 | Operation deadline exceeded |
 | 130 | Interrupted by Ctrl-C |
@@ -266,7 +271,13 @@ noninteractive commands never launch a browser implicitly.
 Mutations require a TTY confirmation or `--force`. The one exception is
 `domain buy`, which replaces the prompt with a spending policy evaluated
 against the live quote: within the account caps it proceeds without a prompt,
-above them it requires `--force`. `--dry-run` occurs before
+above them it requires `--force`. `domain rereg bid` keeps the confirmation and
+adds local policy checks that fail with `policy_refused` (exit 9) and a stable
+`details.reason` (`guard_window`, `deadline_passed`, `spend_limit_exceeded`,
+`existing_bid`, `lot_closed`, `not_listed`, `bid_in_progress`);
+`details.override` names the flag that lifts a refusal when one exists
+(`--allow-release-window`, `--over-limit`). `--force` never lifts them.
+`--dry-run` occurs before
 confirmation and before the injected executor, so it cannot make a provider,
 portal, S3, browser, BFF, or CDP call. Dry-run output reports only the account
 alias, operation name, and argument count; it does not echo opaque identifiers

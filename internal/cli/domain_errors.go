@@ -9,6 +9,7 @@ const (
 	CodeSpendingPolicyRefused  = "spending_policy_refused"
 	CodeDomainUnavailable      = "domain_unavailable"
 	CodeAvailabilityUnknown    = "availability_unknown"
+	CodePolicyRefused          = "policy_refused"
 )
 
 // IdentificationURL is where the REG.RU account owner completes Gosuslugi (ESIA)
@@ -94,4 +95,16 @@ func OutcomeUnknownWithDetails(capability, message string, details map[string]an
 		err.Details[key] = value
 	}
 	return err
+}
+
+// PolicyRefused reports a mutation the local safety policy refuses before
+// anything is sent (backorder guard window, deadline, spending limits, an
+// existing equal or higher own bid). details.reason is stable; details.override
+// names the flag that lifts the refusal when one exists.
+func PolicyRefused(reason, message string, details map[string]any) *CLIError {
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["reason"] = reason
+	return newCLIError(CodePolicyRefused, message, ExitPolicy, details)
 }

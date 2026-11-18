@@ -46,13 +46,16 @@ type Account struct {
 
 // Domain holds non-secret settings for domain registration: the saved REG.RU
 // contact profile used by domain/create, the unattended spending caps in
-// roubles, and whether the account may use the partner-only domain/check.
+// roubles, whether the account may use the partner-only domain/check, and the
+// backorder (rereg) per-bid and per-day caps in roubles.
 type Domain struct {
 	ContactProfileType string `toml:"contact_profile_type,omitempty" json:"-"`
 	ContactProfileName string `toml:"contact_profile_name,omitempty" json:"-"`
 	MaxPrice           string `toml:"max_price,omitempty" json:"-"`
 	MaxRenewal         string `toml:"max_renewal,omitempty" json:"-"`
 	RegistrarCheck     bool   `toml:"registrar_check,omitempty" json:"-"`
+	ReregMaxBid        string `toml:"rereg_max_bid,omitempty" json:"-"`
+	ReregMaxDaily      string `toml:"rereg_max_daily,omitempty" json:"-"`
 }
 
 type Portal struct {
@@ -351,7 +354,10 @@ func validateDomain(settings Domain) error {
 	if (settings.ContactProfileType == "") != (settings.ContactProfileName == "") {
 		return errors.New("domain contact_profile_type and contact_profile_name must be set together")
 	}
-	for name, value := range map[string]string{"max_price": settings.MaxPrice, "max_renewal": settings.MaxRenewal} {
+	for name, value := range map[string]string{
+		"max_price": settings.MaxPrice, "max_renewal": settings.MaxRenewal,
+		"rereg_max_bid": settings.ReregMaxBid, "rereg_max_daily": settings.ReregMaxDaily,
+	} {
 		if value != "" && !amountPattern.MatchString(value) {
 			return fmt.Errorf("domain %s must be a rouble amount such as 500 or 499.90", name)
 		}

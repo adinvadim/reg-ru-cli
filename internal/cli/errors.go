@@ -19,6 +19,7 @@ const (
 	ExitNetwork             = 6
 	ExitCapability          = 7
 	ExitContractDrift       = 8
+	ExitPolicy              = 9
 	ExitOutcomeUnknown      = 10
 	ExitTimeout             = 124
 	ExitInterrupted         = 130

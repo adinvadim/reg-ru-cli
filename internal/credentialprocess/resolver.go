@@ -33,6 +33,7 @@ var allowedFields = map[string]struct{}{
 	"cloudvps.token":       {},
 	"s3.access_key_id":     {},
 	"s3.secret_access_key": {},
+	"rereg.contacts":       {},
 }
 
 type Resolver struct {
