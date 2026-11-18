@@ -40,18 +40,17 @@ func TestParseLot(t *testing.T) {
 	if lot, err := ParseLot(Response{Status: 200, Body: listPage}, mustName(t, "google.ru")); err != nil || lot.State != LotNotListed {
 		t.Fatalf("unlisted = %#v, %v", lot, err)
 	}
-	for _, response := range []Response{
-		{Status: 200, Body: "<html>maintenance</html>"},
-		{Status: 200, Body: strings.Replace(detailsPage, `"minPrice":"350900.00"`, `"minPrice":"soon"`, 1)},
-		{Status: 200, Body: detailsPage, ContentType: "text/html"},
+	for _, check := range []struct {
+		body string
+		name string
+	}{
+		{"<html>maintenance</html>", "moonbot.ru"},
+		{strings.Replace(detailsPage, `"minPrice":"350900.00"`, `"minPrice":"soon"`, 1), "moonbot.ru"},
+		{detailsPage, "other.ru"}, // the page answered for a different name
 	} {
-		name := mustName(t, "moonbot.ru")
-		if response.ContentType != "" {
-			name = mustName(t, "other.ru") // the page answered for a different name
-		}
 		var failure *Failure
-		if _, err := ParseLot(response, name); !errors.As(err, &failure) || failure.Reason != ReasonDrift {
-			t.Errorf("ParseLot(%.40q) err = %v, want drift", response.Body, err)
+		if _, err := ParseLot(Response{Status: 200, Body: check.body}, mustName(t, check.name)); !errors.As(err, &failure) || failure.Reason != ReasonDrift {
+			t.Errorf("ParseLot(%.40q, %s) err = %v, want drift", check.body, check.name, err)
 		}
 	}
 	var failure *Failure

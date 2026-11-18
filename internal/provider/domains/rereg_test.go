@@ -380,6 +380,7 @@ func TestReregBidPolicyRefusesBeforeSending(t *testing.T) {
 		bids     string
 		reason   string
 		code     string
+		minimum  string
 	}{
 		{name: "guard window", price: "450", now: guard, reason: "guard_window"},
 		{name: "per-bid cap", price: "5950", extra: map[string][]string{"max-price": {"6000"}}, reason: "spend_limit_exceeded"},
@@ -388,7 +389,7 @@ func TestReregBidPolicyRefusesBeforeSending(t *testing.T) {
 		{name: "deadline passed", price: "450", now: time.Date(2026, 11, 19, 16, 50, 0, 0, time.FixedZone("MSK", 3*3600)),
 			bids: ownBidBody("0.00", "0.00", `"450.00"`, 1), reason: "deadline_passed"},
 		{name: "not a ladder step", price: "500", code: cli.CodeInvalidUsage},
-		{name: "below the public minimum", price: "450", extra: map[string][]string{}, code: cli.CodeInvalidUsage},
+		{name: "below the public minimum", price: "450", minimum: "1950.00", code: cli.CodeInvalidUsage},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -401,9 +402,9 @@ func TestReregBidPolicyRefusesBeforeSending(t *testing.T) {
 				bids = noBidsBody
 			}
 			script := newREGAPI(t, map[string][]scripted{"domain/get_user_rereg_bids": ok(bids)})
-			minimum := "450.00"
-			if testCase.name == "below the public minimum" {
-				minimum = "1950.00"
+			minimum := testCase.minimum
+			if minimum == "" {
+				minimum = "450.00"
 			}
 			fixture := newReregFixture(t, script, publicLot("moonbot.ru", minimum), ownerSettings, now)
 			if testCase.priorDay > 0 {
@@ -531,5 +532,75 @@ func TestReregBidAmbiguousDispatchIsReconciledNeverResent(t *testing.T) {
 				t.Fatalf("error = %#v evidence = %#v", cliErr, evidence)
 			}
 		})
+	}
+}
+
+func catalogCSV(extra ...string) string {
+	lines := append([]string{"Домен;Ставки;Текущ.блиц,руб.;Перв.регистрация;Дата удаления;Регистратор"}, extra...)
+	for index := 0; index < 1000; index++ {
+		lines = append(lines, fmt.Sprintf("filler%04d.ru;нет;10000000.00;;2026-11-25;BEGET", index))
+	}
+	return strings.Join(lines, "\r\n")
+}
+
+func TestReregCatalogFetchStoresAndSearchFilters(t *testing.T) {
+	public := &fakePublic{pages: map[string]rereg.Response{
+		rereg.CatalogPath: {Status: 200, ContentType: "application/octet-stream", LastModified: "Wed, 18 Nov 2026 06:32:36 GMT", Body: catalogCSV(
+			"moonbot.ru;есть;10000000.00;2012-03-31;2026-11-19;REGRU",
+			"kubanbot.ru;нет;10000000.00;;2026-11-19;RUCENTER",
+			"кубань.рф;есть;10000000.00;;2026-11-20;REGRU",
+		)},
+	}}
+	fixture := newReregFixture(t, nil, public, profile.Domain{}, reregNoon)
+	fetch := cli.Operation{Capability: "domain.rereg.catalog", Action: "domain.rereg.catalog.fetch", RequestTimeout: time.Second}
+	result, err := fixture.executor.Execute(context.Background(), fetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta := result.Data.(map[string]any)["snapshot"].(rereg.Metadata); meta.Rows != 1003 || meta.WithBids != 2 || meta.LastModified == "" {
+		t.Fatalf("snapshot = %#v", meta)
+	}
+	search := func(arguments []string, parameters map[string][]string) []string {
+		t.Helper()
+		operation := cli.Operation{Capability: "domain.rereg.catalog", Action: "domain.rereg.catalog.search", Arguments: arguments, Parameters: parameters}
+		result, err := fixture.executor.Execute(context.Background(), operation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := []string{}
+		for _, row := range result.Data.(map[string]any)["results"].([]rereg.Row) {
+			names = append(names, row.Name.Unicode)
+		}
+		return names
+	}
+	for _, check := range []struct {
+		arguments  []string
+		parameters map[string][]string
+		want       string
+	}{
+		{nil, map[string][]string{"date": {"tomorrow"}}, "kubanbot.ru,moonbot.ru"},
+		{[]string{"BOT"}, map[string][]string{"with-bids": {"true"}}, "moonbot.ru"},
+		{[]string{"кубань"}, nil, "кубань.рф"},
+		{nil, map[string][]string{"zones": {"rf"}}, "кубань.рф"},
+		{nil, map[string][]string{"registrar": {"rucenter"}}, "kubanbot.ru"},
+		{nil, map[string][]string{"date": {"2026-11-19"}, "limit": {"1"}}, "kubanbot.ru"},
+	} {
+		if got := strings.Join(search(check.arguments, check.parameters), ","); got != check.want {
+			t.Errorf("search %v %v = %q, want %q", check.arguments, check.parameters, got, check.want)
+		}
+	}
+}
+
+func TestReregCatalogFetchRejectsAnHTMLAnswer(t *testing.T) {
+	public := &fakePublic{pages: map[string]rereg.Response{
+		rereg.CatalogPath: {Status: 200, ContentType: "text/html; charset=utf-8", Body: "<html>maintenance</html>"},
+	}}
+	fixture := newReregFixture(t, nil, public, profile.Domain{}, reregNoon)
+	_, err := fixture.executor.Execute(context.Background(), cli.Operation{Capability: "domain.rereg.catalog", Action: "domain.rereg.catalog.fetch"})
+	if cliErr := cliCode(t, err); cliErr.Code != cli.CodeContractDrift || cliErr.ExitCode != cli.ExitContractDrift {
+		t.Fatalf("error = %#v", cliErr)
+	}
+	if _, _, err := fixture.store.Load(); err == nil {
+		t.Fatal("an HTML answer was stored as the catalogue")
 	}
 }
