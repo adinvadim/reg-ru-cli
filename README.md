@@ -103,8 +103,9 @@ A targeted example is provided at
 It requires the official `op` CLI, desktop-app integration, and `jq`. Create a
 single item in the named account and vault with only the exact custom field
 labels you need: `portal.login`, `portal.password`, `regapi.username`,
-`regapi.password`, `cloudvps.token`, `s3.access_key_id`, and
-`s3.secret_access_key`. Paired fields must be present together.
+`regapi.password`, `cloudvps.token`, `s3.access_key_id`,
+`s3.secret_access_key`, and `rereg.contacts` (the ESIA-verified registrant
+contacts JSON for backorder bids). Paired fields must be present together.
 
 Install the example at a private absolute path, unlock 1Password, and verify
 that `op whoami --account my.1password.com` succeeds before using `regru`.
@@ -127,6 +128,7 @@ regru --account work vps list
 regru --account work --dry-run vps create --size PLAN --image IMAGE --region REGION
 regru --account work billing invoice list
 regru domain search kuban "kvartal|kvartaly"
+regru domain rereg catalog fetch && regru domain rereg catalog search kuban --date tomorrow
 regru --account work --dry-run s3 bucket create UNIQUE_NAME --access private
 ```
 

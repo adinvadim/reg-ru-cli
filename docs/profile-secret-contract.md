@@ -37,8 +37,10 @@ writes one strict JSON document to its captured stdout:
 ```
 
 Supported field families are `portal.login` plus `portal.password`,
-`regapi.username` plus `regapi.password`, `cloudvps.token`, and
-`s3.access_key_id` plus `s3.secret_access_key`. Paired families are
+`regapi.username` plus `regapi.password`, `cloudvps.token`,
+`s3.access_key_id` plus `s3.secret_access_key`, and `rereg.contacts` (a JSON
+object of REG.API registrant contact fields, including passport data, used
+only by `domain rereg bid --contact credential`). Paired families are
 all-or-nothing. Every value, including login names and access-key identifiers,
 is private.
 
@@ -87,6 +89,8 @@ contact_profile_name = "Owner"
 max_price = "500"
 max_renewal = "1500"
 registrar_check = false
+rereg_max_bid = "3000"
+rereg_max_daily = "10000"
 ```
 
 Writes use a private directory, a mode-0600 same-directory temporary file,
@@ -123,7 +127,9 @@ cabinet and must be set together; the type is one of `GTLD`, `EU`, `TJ`,
 `RU.PP`, `RU.ORG`, `NEWTCI.ORG`, `NEWTCI.PP`. `max_price` and `max_renewal`
 are rouble caps for an unattended `domain buy` (defaults 500 and 1500).
 `registrar_check` enables the partner-only REG.API `domain/check`
-confirmation during `domain search` and `domain check`. A project checkout
+confirmation during `domain search` and `domain check`. `rereg_max_bid` and
+`rereg_max_daily` are the backorder per-bid and per-Moscow-day caps in roubles
+(defaults 3000 and 10000). A project checkout
 cannot set any of them. See the [domain command guide](domains.md).
 
 ## Selection and commands

@@ -112,6 +112,26 @@ A 32-hex service identifier the CLI generates before sending `domain/create`.
 It is the reconciliation handle for an ambiguous order; reusing it on a retry
 makes REG.API reject a duplicate instead of charging twice.
 
+### Backorder (rereg)
+
+The REG.RU auction for `.ru`/`.рф`/`.su` names about to be released by the
+registry ("освобождающиеся домены"). Bids are fixed ladder prices charged from
+the balance at once, cannot be cancelled, and are refunded when outbid or when
+the name is not registered. The last payment is due at 16:45 MSK on the
+release day.
+
+### Guard window
+
+16:55–17:15 MSK, when `domain rereg bid` refuses to send unless
+`--allow-release-window`, because the same REG.API account may be busy with an
+automated 17:00 purchase (`BILLING_LOCK`, shared request budget).
+
+### Bid journal
+
+The local append-only record of every dispatched backorder bid per account
+profile. It is the only source of the daily backorder cap and never contains
+contacts or credentials.
+
 ## Infrastructure
 
 ### CloudVPS action

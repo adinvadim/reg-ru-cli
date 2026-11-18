@@ -45,7 +45,8 @@ op item get "$item" \
 				"regapi.password": exact_field("regapi.password"),
 				"cloudvps.token": exact_field("cloudvps.token"),
 				"s3.access_key_id": exact_field("s3.access_key_id"),
-				"s3.secret_access_key": exact_field("s3.secret_access_key")
+				"s3.secret_access_key": exact_field("s3.secret_access_key"),
+				"rereg.contacts": exact_field("rereg.contacts")
 			} | with_entries(select(.value != null)))
 		} |
 		if (.fields | length) == 0 then error("no supported fields") else . end
