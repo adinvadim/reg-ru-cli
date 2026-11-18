@@ -18,6 +18,7 @@ import (
 	"github.com/adinvadim/reg-ru-cli/internal/profile"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/regapi"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/registry"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/rereg"
 )
 
 const defaultReconcileTimeout = 20 * time.Second
@@ -35,6 +36,14 @@ type ExecutorOptions struct {
 	HTTPClient       regapi.HTTPDoer
 	NewUserServID    func() (string, error)
 	ReconcileTimeout time.Duration
+	// ReregPublic opens anonymous www.reg.ru pages for the backorder catalogue
+	// and lot data; nil makes those reads fail with missing_browser.
+	ReregPublic rereg.Opener
+	// CatalogDir stores the backorder catalogue snapshot; JournalDir the
+	// per-account backorder bid journal used for the daily cap.
+	CatalogDir string
+	JournalDir string
+	Now        func() time.Time
 }
 
 // Executor handles every domain.* action and delegates the rest.
@@ -75,6 +84,16 @@ func (e *Executor) Execute(ctx context.Context, operation cli.Operation) (cli.Re
 		return e.list(ctx, operation)
 	case "domain.ns.set":
 		return e.setNameservers(ctx, operation)
+	case "domain.rereg.catalog.fetch":
+		return e.reregCatalogFetch(ctx, operation)
+	case "domain.rereg.catalog.search":
+		return e.reregCatalogSearch(ctx, operation)
+	case "domain.rereg.quote":
+		return e.reregQuote(ctx, operation)
+	case "domain.rereg.bids":
+		return e.reregBids(ctx, operation)
+	case "domain.rereg.bid":
+		return e.reregBid(ctx, operation)
 	default:
 		return e.fallback.Execute(ctx, operation)
 	}

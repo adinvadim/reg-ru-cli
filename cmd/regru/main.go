@@ -14,6 +14,7 @@ import (
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/authcli"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/cdp"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/portal/session"
+	"github.com/adinvadim/reg-ru-cli/internal/provider/rereg"
 	regs3 "github.com/adinvadim/reg-ru-cli/internal/provider/s3"
 	"github.com/adinvadim/reg-ru-cli/internal/provider/support"
 )
@@ -59,8 +60,15 @@ func productionOptions() cli.Options {
 		Profiles: options.Profiles,
 		Portal:   support.NewPortal(broker),
 	}, options.Executor)
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = filepath.Join(configDir, "regru", "cache")
+	}
 	options.Executor = domains.NewExecutor(domains.ExecutorOptions{
-		Profiles: options.Profiles,
+		Profiles:    options.Profiles,
+		ReregPublic: rereg.BrowserOpener{Browser: cdp.NewPublicBrowser(cdp.Config{})},
+		CatalogDir:  filepath.Join(cacheDir, "regru", "rereg"),
+		JournalDir:  filepath.Join(configDir, "regru", "rereg-journal"),
 	}, options.Executor)
 	options.Executor = authcli.New(options.Profiles, broker, options.Executor)
 	options.Executor = capability.NewExecutor(options.Profiles, options.Executor)

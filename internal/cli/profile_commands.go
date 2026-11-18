@@ -350,6 +350,10 @@ func localCapabilityStates(account profile.Account) map[string]string {
 		"domain.list":            state(regapi),
 		"domain.ns":              state(regapi),
 		"domain.buy":             state(regapi && account.Domain.ContactProfileName != ""),
+		"domain.rereg.catalog":   "configured",
+		"domain.rereg.quote":     "configured",
+		"domain.rereg.bids":      state(regapi),
+		"domain.rereg.bid":       state(regapi),
 	}
 }
 

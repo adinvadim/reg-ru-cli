@@ -26,11 +26,13 @@ func newDomainCommand(app *appRuntime) *cobra.Command {
 			args:       cobra.NoArgs,
 		}),
 		newGroupCommand("ns", "Manage domain nameservers at REG.RU", newDomainNSSetCommand(app)),
+		newDomainReregCommand(app),
 	)
 	command.Long = "Registry-first domain availability, REG.API prices, and policy-bounded purchase.\n\n" +
 		"search and check need no account: TCI WHOIS (.ru/.рф/.su) and Verisign RDAP (.com/.net) answer taken, likely_free, or unknown. " +
 		"A name becomes free only when REG.API domain/check also confirms it (partner accounts with registrar_check = true). Unknown is never free.\n\n" +
-		"buy proceeds without a prompt only while the live first-year and renewal prices are within the account caps (default 500/1500 RUB); above them it needs --force, and an unknown renewal price always refuses."
+		"buy proceeds without a prompt only while the live first-year and renewal prices are within the account caps (default 500/1500 RUB); above them it needs --force, and an unknown renewal price always refuses.\n\n" +
+		"rereg covers the REG.RU backorder of releasing .ru/.рф/.su names: public catalogue and quotes, own bids, and capped bids."
 	command.Example = `  regru domain search kuban "kvartal|kvartaly"
   regru domain check domkray.ru домкрай.рф --json
   regru --account personal domain quote domkray.ru

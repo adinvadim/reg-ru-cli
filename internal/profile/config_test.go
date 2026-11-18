@@ -190,6 +190,8 @@ contact_profile_name = "owner"
 max_price = "300"
 max_renewal = "1499.50"
 registrar_check = true
+rereg_max_bid = "1950"
+rereg_max_daily = "6000.50"
 `)
 	config, err := NewFileRepository(userPath, "").Load()
 	if err != nil {
@@ -197,7 +199,8 @@ registrar_check = true
 	}
 	settings := config.Accounts["personal"].Domain
 	if settings.ContactProfileType != "RU.PP" || settings.ContactProfileName != "owner" ||
-		settings.MaxPrice != "300" || settings.MaxRenewal != "1499.50" || !settings.RegistrarCheck {
+		settings.MaxPrice != "300" || settings.MaxRenewal != "1499.50" || !settings.RegistrarCheck ||
+		settings.ReregMaxBid != "1950" || settings.ReregMaxDaily != "6000.50" {
 		t.Fatalf("domain settings = %#v", settings)
 	}
 
@@ -206,6 +209,8 @@ registrar_check = true
 		`contact_profile_type = "RU.PP"` + "\n",
 		`max_price = "-1"` + "\n",
 		`max_renewal = "1e3"` + "\n",
+		`rereg_max_bid = "3 000"` + "\n",
+		`rereg_max_daily = "-10000"` + "\n",
 		`unknown_field = "x"` + "\n",
 	} {
 		writeTestConfig(t, userPath, base+invalid)
